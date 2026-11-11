@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 from .drawing import Drawing, Sheet
+from .firmware import ServoSettings
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
 Z_COMMAND = re.compile(rf"(G[01])[ \t]*Z({NUMBER})(?:[ \t]*F({NUMBER}))?", re.ASCII)
@@ -44,6 +45,7 @@ class Machine:
     up: str
     down: str
     settle: float = 0
+    servo: ServoSettings | None = None
 
     def __post_init__(self) -> None:
         if not all(0 < value <= 10_000 for value in (self.width, self.height)):
@@ -56,6 +58,13 @@ class Machine:
         down_mode, down, down_value = pen_command(self.down)
         if up_mode != down_mode or up_value == down_value:
             raise ValueError("Use two distinct positions for the same pen actuator.")
+        if self.servo is not None:
+            if up_mode != "PWM":
+                raise ValueError("The uploaded servo profile uses M3 S and M5 pen commands.")
+            up_count = self.servo.timer_count(None if up == "M5" else up_value)
+            down_count = self.servo.timer_count(None if down == "M5" else down_value)
+            if up_count == down_count:
+                raise ValueError("The pen commands select the same servo pulse. Choose distinct positions.")
         object.__setattr__(self, "up", up)
         object.__setattr__(self, "down", down)
 

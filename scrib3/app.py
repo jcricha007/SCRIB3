@@ -11,6 +11,7 @@ from . import grbl, ollama
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths, read_svg
 from .gcode import Machine, generate_gcode
+from .firmware import SERVO_PROFILE, ServoSettings
 
 INK = "#262a25"
 MUTED = "#555e54"
@@ -52,6 +53,8 @@ class Studio:
         self.settle = tk.StringVar(value="0")
         self.port = tk.StringVar()
         self.baud = tk.StringVar(value="115200")
+        self.firmware = tk.StringVar(value="Manual commands")
+        self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
         self.refresh()
@@ -146,6 +149,15 @@ class Studio:
         self.generate_button.grid(row=11, columnspan=2, sticky="ew")
 
     def build_machine_tab(self, panel: ttk.Frame) -> None:
+        profile_panel = ttk.Frame(panel)
+        profile_panel.grid(row=0, columnspan=2, sticky="ew", pady=(0, 7))
+        ttk.Label(profile_panel, text="Firmware profile").pack(side="left", padx=(0, 10))
+        ttk.Combobox(profile_panel, textvariable=self.firmware, state="readonly", width=18,
+                     values=("Manual commands", SERVO_PROFILE)).pack(side="left", fill="x", expand=True)
+        settings_panel = ttk.Frame(panel)
+        settings_panel.grid(row=1, columnspan=2, sticky="ew")
+        settings_panel.columnconfigure(1, weight=1)
+        panel = settings_panel
         ttk.Label(panel, text="Plotter settings", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
         for row, (label, variable) in enumerate((
             ("Usable X travel (mm)", self.machine_width),
@@ -168,7 +180,7 @@ class Studio:
         ttk.Button(panel, text="Find ports", command=self.scan_ports).grid(row=12, column=0, sticky="ew", padx=(0, 7))
         self.inspect_button = ttk.Button(panel, text="Read GRBL", command=self.inspect)
         self.inspect_button.grid(row=12, column=1, sticky="ew")
-        ttk.Label(panel, text="Opening the port can reset the Arduino.\nInspect while the plotter is idle.",
+        ttk.Label(panel, text="Opening the port can reset the Arduino\nand move the servo. Inspect while idle.",
                   style="Muted.TLabel").grid(row=13, columnspan=2, sticky="w", pady=(6, 0))
 
     def field(self, panel: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
@@ -318,6 +330,7 @@ class Studio:
 
     def inspect(self) -> None:
         port = self.port.get()
+        self.controller_report = None
         try:
             baud = int(self.baud.get())
         except ValueError:
@@ -326,7 +339,14 @@ class Studio:
         self.status.set(f"Reading GRBL on {port}…" if port else "Select a serial port.")
 
         def show(report: str) -> None:
+            self.controller_report = (port, baud, report)
             self.status.set(f"GRBL responded on {port}.")
+            if self.firmware.get() == SERVO_PROFILE:
+                try:
+                    summary = ServoSettings.from_report(report).describe()
+                except ValueError as exc:
+                    summary = f"Uploaded RC-servo profile\n{exc}"
+                report = summary + "\n\n" + report
             dialog, controls = self.text_dialog("GRBL connection report", report)
 
             def copy() -> None:
@@ -341,9 +361,15 @@ class Studio:
     def review(self) -> None:
         try:
             self.refresh()
+            servo = None
+            if self.firmware.get() == SERVO_PROFILE:
+                if self.controller_report is None or self.controller_report[:2] != (self.port.get(), int(self.baud.get())):
+                    raise ValueError("Read GRBL on the selected port to check the uploaded servo profile.")
+                servo = ServoSettings.from_report(self.controller_report[2])
             machine = Machine(
                 float(self.machine_width.get()), float(self.machine_height.get()),
                 float(self.feed.get()), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
+                servo=servo,
             )
             program = generate_gcode(self.drawing, self.sheet, machine)
         except ValueError as exc:
