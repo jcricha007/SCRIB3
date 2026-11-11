@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from time import monotonic
+from time import monotonic, sleep
 
 import serial
 from serial.tools import list_ports
@@ -39,11 +39,23 @@ def inspect(port: str, baud: int = 115200) -> str:
         if not any(line.startswith(("Grbl ", "<")) for line in startup + status):
             raise ValueError("No GRBL banner or status received. Check the port, baud, and firmware.")
         report = startup + ["?", *status]
-        for command in ("$I", "$$"):
+        for command in ("$I", "$$", "$G", "$#"):
             connection.write((command + "\n").encode("ascii"))
             reply = _receive(connection, 2.0, lambda line: line == "ok" or line.startswith("error:"))
             report.extend([command, *reply])
             if not reply or not (reply[-1] == "ok" or reply[-1].startswith("error:")):
                 report.append("(response timed out before acknowledgement)")
+                break
+        # Overrides are reported intermittently. Request a bounded series of status snapshots.
+        for _ in range(20):
+            if any(line.startswith("<") and "|Ov:" in line for line in report):
+                break
+            sleep(0.2)
+            connection.write(b"?")
+            snapshot = _receive(
+                connection, 0.5, lambda line: line.startswith("<") and line.endswith(">"),
+            )
+            report.extend(["?", *snapshot])
+            if not snapshot:
                 break
     return "\n".join(report)

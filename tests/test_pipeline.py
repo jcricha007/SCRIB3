@@ -69,11 +69,13 @@ class PlottingTests(TestCase):
         with patch.object(grbl.serial, "Serial") as serial:
             connection = serial.return_value.__enter__.return_value
             connection.read_until.side_effect = [
-                b"Grbl 1.1h\n", b"<Id", b"le|MPos:0,0,0>\n",
+                b"Grbl 1.1h\n", b"<Id", b"le|MPos:0,0,0|Ov:100,100,100>\n",
                 b"[VER:1.1h]\n", b"ok\n", b"$130=150.000\n", b"ok\n",
+                b"[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]\n", b"ok\n",
+                b"[G54:0.000,0.000,0.000]\n", b"ok\n",
             ]
             report = grbl.inspect("COM3")
             self.assertEqual([call.args[0] for call in connection.write.call_args_list],
-                             [b"?", b"$I\n", b"$$\n"])
-            self.assertIn("<Idle|MPos:0,0,0>", report)
+                             [b"?", b"$I\n", b"$$\n", b"$G\n", b"$#\n"])
+            self.assertIn("<Idle|MPos:0,0,0|Ov:100,100,100>", report)
             self.assertIn("$130=150.000", report)
