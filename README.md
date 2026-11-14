@@ -1,6 +1,6 @@
 # SCRIB3
 
-SCRIB3 is a Windows-first desktop workbench for Arduino pen plotters. It combines SVG import, local Ollama line-art generation, toolpath preview, and GRBL G-code export.
+SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines SVG import, local Ollama line-art generation, toolpath preview, and GRBL G-code export.
 
 ## Run on Windows
 
@@ -14,9 +14,35 @@ py -3.12 -m venv .venv
 
 To reopen SCRIB3, run the last command from the repository folder.
 
+## Run on Mac
+
+Install Python 3.12 or newer using the macOS installer from python.org. The installer includes Tk and supports Apple Silicon and Intel Macs. Complete Python's **Install Certificates.command** step in its Applications folder. [Python macOS installation guide](https://docs.python.org/3/using/mac.html)
+
+If you already use Homebrew, install its matching Tk package. For Python 3.13, run **brew install python-tk@3.13**. [Homebrew Tk package](https://formulae.brew.sh/formula/python-tk@3.13)
+
+Clone or download this repository, then double-click **Run-SCRIB3.command** in Finder. You can also run it from Terminal after changing to the repository folder.
+
+~~~bash
+bash Run-SCRIB3.command
+~~~
+
+The launcher finds Python with Tk, creates a local **.venv-macos** environment, installs the pinned dependencies, checks the desktop startup, and opens SCRIB3. Reuse the same launcher to open the app later. If setup is interrupted, run it again.
+
+To check the installation and available serial ports, run the following command.
+
+~~~bash
+bash Run-SCRIB3.command --check
+~~~
+
+Use **Find ports** in SCRIB3 to select the Arduino's Mac device path, commonly **/dev/cu.usbmodem…** or **/dev/cu.usbserial…**. A report showing no serial ports still allows drawing and G-code export. Connect the Arduino with a USB data cable when you are ready to inspect the controller.
+
+For AI generation, install and open Ollama on the Mac, then enter a model shown by **ollama list** in SCRIB3. The current Ollama app requires macOS 14 or newer and provides GPU acceleration on Apple Silicon. [Ollama macOS requirements](https://docs.ollama.com/macos)
+
+If you have several Python installations, set **SCRIB3_PYTHON** to the executable you want the launcher to use when creating its environment.
+
 ## Make a drawing
 
-1. Load the built-in sample, import an SVG, or use **Generate with Ollama**. For Ollama, open the local Ollama app, run **ollama list** in PowerShell, and enter an installed local model tag in SCRIB3.
+1. Load the built-in sample, import an SVG, or use **Generate with Ollama**. For Ollama, open the local Ollama app, run **ollama list** in Terminal or PowerShell, and enter an installed local model tag in SCRIB3.
 2. Set the paper size and margin, then select **Fit to paper**. The drawing scales proportionally to the paper using the bounds of its artwork. Use **Show pen-up travel** to see the moves between strokes.
 3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then **Read GRBL** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
 4. Select **Review G-code** and **Save .gcode**. The job uses absolute millimeter coordinates in G54, with positive X to the right and positive Y toward the top of the page. Set the work origin at the paper's lower-left corner in your existing sender and account for any active G92 offset.
@@ -40,6 +66,12 @@ Close any serial monitor or sender using the same port. With the plotter idle, o
 
 ~~~powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+~~~
+
+On macOS, run the checks with the environment created by the launcher.
+
+~~~bash
+.venv-macos/bin/python -m unittest discover -s tests -v
 ~~~
 
 - [GRBL serial interface](https://github.com/gnea/grbl/blob/master/doc/markdown/interface.md)
