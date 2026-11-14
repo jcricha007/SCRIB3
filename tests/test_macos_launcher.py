@@ -51,6 +51,16 @@ class MacLauncherTests(TestCase):
         self.assertEqual(result.stdout.splitlines(),
                          [str(self.repo / "scripts" / "start_macos.py"), "--check"])
 
+    def test_connection_arguments_reach_the_setup_helper(self):
+        python = self.executable(
+            "python args",
+            '#!/bin/sh\nif [ "$1" = "-c" ]; then exit 0; fi\nprintf "%s\\n" "$@"\n',
+        )
+        self.environment["SCRIB3_PYTHON"] = str(python)
+        result = self.run_launcher("--connect", "auto", "--baud", "115200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[1:], ["--connect", "auto", "--baud", "115200"])
+
     def test_failed_setup_propagates_exit_status(self):
         python = self.executable(
             "python failure",

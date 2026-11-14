@@ -1,6 +1,6 @@
 # SCRIB3
 
-SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines SVG import, local Ollama line-art generation, toolpath preview, and GRBL G-code export.
+SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines SVG import, local Ollama line-art generation, toolpath preview, GRBL G-code export, and direct plotter setup and manual control.
 
 ## Run on Windows
 
@@ -44,22 +44,32 @@ If you have several Python installations, set **SCRIB3_PYTHON** to the executabl
 
 1. Load the built-in sample, import an SVG, or use **Generate with Ollama**. For Ollama, open the local Ollama app, run **ollama list** in Terminal or PowerShell, and enter an installed local model tag in SCRIB3.
 2. Set the paper size and margin, then select **Fit to paper**. The drawing scales proportionally to the paper using the bounds of its artwork. Use **Show pen-up travel** to see the moves between strokes.
-3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then **Read GRBL** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
-4. Select **Review G-code** and **Save .gcode**. The job uses absolute millimeter coordinates in G54, with positive X to the right and positive Y toward the top of the page. Set the work origin at the paper's lower-left corner in your existing sender and account for any active G92 offset.
+3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then connect on **Control** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
+4. Select **Review G-code** and **Save .gcode**. The job uses absolute millimeter coordinates in G54, with positive X to the right and positive Y toward the top of the page. Use **Control → Paper XY zero** at the paper's lower-left corner before plotting.
 
 SVG import plots outlines. Convert live text to paths, trace raster images to vectors, and flatten clipping and masks to paths before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
 
 ## Check the Arduino connection
 
-Close any serial monitor or sender using the same port. With the plotter idle, open the **Machine** tab, select **Find ports**, choose the port, and click **Read GRBL**. The report captures the GRBL banner when available, status and override snapshots, build info, controller settings, parser modes, and coordinate offsets. Opening the port can reset some Arduino boards and move the servo. Run exported files through your existing sender in this version.
+Close any serial monitor or sender using the same port. On **Control**, select **Auto detect** to find a GRBL controller and its baud rate, or choose a port and rate manually. The connection stays open for **Setup**, **Home**, XY jogging, paper-zero setting, and pen controls. Live state, positions, and active inputs appear above the jog buttons.
+
+On Mac, launch and automatically find the supplied firmware at 115200 baud from the repository folder:
+
+~~~bash
+bash Run-SCRIB3.command --connect auto --baud 115200
+~~~
+
+Omit the baud option to scan all supported rates. `--baud` sets the computer's rate; the supplied GRBL firmware's rate is fixed at compile time. See the [connection and plotter-control guide](docs/plotter-control.md) for terminal commands, calibration, limits, cancellation, and reset behavior.
+
+Opening a port can reset the Arduino and move the servo. Physical homing and pen motion still need to be checked on the assembled machine. Run exported drawing jobs through your existing sender until in-app job streaming is added.
 
 ## Build sequence
 
 | Milestone | Deliverable |
 | --- | --- |
 | Drawing workbench | SVG or Ollama prompt to paper preview, then reviewable G-code export with an explicit plotter configuration. |
-| Plotter bring-up | Read the installed controller settings, calibrate the lift and axes, then establish a first small plot from SCRIB3 output. |
-| In-app plotting | Add jogging, work-origin setup, and GRBL job streaming with controller acknowledgement, pause/resume, and confirmed completion. |
+| Plotter bring-up | Port/baud discovery, persistent connection, editable controller settings, homing, live positions, XY jog, work origin, and pen tests. Physical calibration and first plot remain to be verified. |
+| In-app plotting | Next: full GRBL job streaming with acknowledgement, pause/resume, and confirmed completion. |
 | Drawing tools | Add raster tracing, direct drawing edits, saved machine profiles, and prompt-based revisions. |
 
 ## Developer checks
