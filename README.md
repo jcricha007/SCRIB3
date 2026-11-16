@@ -1,6 +1,6 @@
 # SCRIB3
 
-SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines SVG import, local Ollama line-art generation, toolpath preview, GRBL G-code export, direct plotter setup and manual control, saved pen presets, and metric/imperial units.
+SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines vector design tools, local Ollama chat and drawing proposals, toolpath preview, SVG/G-code export, guided travel calibration, direct plotter control, saved presets, and metric/imperial units.
 
 ## Run on Windows
 
@@ -36,7 +36,7 @@ bash Run-SCRIB3.command --check
 
 Use **Find ports** in SCRIB3 to select the Arduino's Mac device path, commonly **/dev/cu.usbmodem…** or **/dev/cu.usbserial…**. A report showing no serial ports still allows drawing and G-code export. Connect the Arduino with a USB data cable when you are ready to inspect the controller.
 
-For AI generation, install and open Ollama on the Mac, then enter a model shown by **ollama list** in SCRIB3. The current Ollama app requires macOS 14 or newer and provides GPU acceleration on Apple Silicon. [Ollama macOS requirements](https://docs.ollama.com/macos)
+For AI generation, open your installed Ollama app, then choose **Design → Open Ollama assistant**. **Refresh models** finds installed local models; select one for chat and drawing generation. **Save choice** remembers the model together with the current machine preset. [Assistant and design guide](docs/design-assistant.md)
 
 If you have several Python installations, set **SCRIB3_PYTHON** to the executable you want the launcher to use when creating its environment.
 
@@ -44,14 +44,18 @@ If you have several Python installations, set **SCRIB3_PYTHON** to the executabl
 
 Choose **Inches** (imperial) or **Millimeters** (metric) with the **Units** selector in the header. It converts paper dimensions, travel, feeds, jog steps, live positions, and setup fields while preserving their physical values. Export uses **G20** for inches and **G21** for millimeters. Servo S values stay unchanged.
 
-The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180** and **Pen down = M3 S70**, matching the positions tested on John's plotter. On **Machine**, choose **Save preset** to remember your current values and unit choice across launches. **Restore John's** reloads the bundled preset. Usable travel and drawing feed remain unset until configured; the reported 250 steps/mm and 200 mm travel have not been physically calibrated.
+The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Usable travel and drawing feed remain unset until measured/configured.
+
+On **Machine**, choose **Save preset** to remember current values and units. **Restore John's** reloads the bundled preset. Older saved presets migrate while keeping their existing pen commands, dimensions, and units. Loading a preset never writes to the Arduino. In **Control → Setup → Motion**, **Use preset X/Y calibration** fills the setup fields; **Apply changed settings** writes them. A steps/mm change requires reset and reconnect before motion is enabled again.
+
+For guided setup, use **Control → Setup → Motion → Guided calibration…**. The guide reads the current settings, applies the saved starting calibration on request, raises the pen for a small test move, and calculates an axis correction from your ruler/caliper measurement. It waits for Idle, accounts for step rounding, checks readback, and saves successful corrections. [Calibration instructions](docs/calibration.md)
 
 ## Make a drawing
 
-1. Load the built-in sample, import an SVG, or use **Generate with Ollama**. For Ollama, open the local Ollama app, run **ollama list** in Terminal or PowerShell, and enter an installed local model tag in SCRIB3.
-2. Set the paper size and margin, then select **Fit to paper**. The drawing scales proportionally to the paper using the bounds of its artwork. Use **Show pen-up travel** to see the moves between strokes.
+1. Load the sample, import an SVG, create a Grid/Spiral/Rosette on **Design**, or open the Ollama assistant. In **Create / revise**, request new line art or revise the workspace drawing; inspect the proposal and choose **Use drawing in workspace**. Chat can help develop the brief. AI responses cannot operate the controller.
+2. Set paper size and margin, then select **Fit to paper**. The drawing scales proportionally using its artwork bounds. Rotate or mirror it, use **Undo design** to restore the previous source, and **Export SVG** to save the fitted geometry. **Show pen-up travel** reveals moves between strokes.
 3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then connect on **Control** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
-4. Select **Review G-code** and **Save .gcode**. The job uses absolute coordinates in the selected units and G54, with positive X to the right and positive Y toward the top of the page. Use **Control → Paper XY zero** at the paper's lower-left corner before plotting.
+4. Use **Control → Paper XY zero** at the paper's lower-left corner, then select **Review G-code**. The review starts with **Pen-up test** selected; leave it selected for the first trial, or uncheck it to draw with ink. Choose **Run sketch** to execute in SCRIB3, or **Save .gcode** to export the reviewed mode. The job uses absolute coordinates in the selected units and G54, with positive X to the right and positive Y toward the top of the page. [Running sketches](docs/running-sketches.md)
 
 SVG import plots outlines. Convert live text to paths, trace raster images to vectors, and flatten clipping and masks to paths before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
 
@@ -67,7 +71,7 @@ bash Run-SCRIB3.command --connect auto --baud 115200
 
 Omit the baud option to scan all supported rates. `--baud` sets the computer's rate; the supplied GRBL firmware's rate is fixed at compile time. See the [connection and plotter-control guide](docs/plotter-control.md) for terminal commands, calibration, limits, cancellation, and reset behavior.
 
-Opening a port can reset the Arduino and move the servo. Physical homing and pen motion still need to be checked on the assembled machine. Run exported drawing jobs through your existing sender until in-app job streaming is added.
+Opening a port can reset the Arduino and move the servo. Physical travel calibration and pen motion still need to be checked on the assembled machine. Establish paper zero during the current connection and begin with a small pen-up test before drawing with ink.
 
 ## Manual home without switches
 
@@ -79,10 +83,10 @@ Jog to the desired starting location and click **Control → Set home**. It mark
 
 | Milestone | Deliverable |
 | --- | --- |
-| Drawing workbench | SVG or Ollama prompt to paper preview, then reviewable G-code export with an explicit plotter configuration. |
-| Plotter bring-up | Port/baud discovery, persistent connection, editable controller settings, manual and switch home, live positions, XY jog, work origin, and saved pen presets with metric/imperial units. Physical calibration and first plot remain to be verified. |
-| In-app plotting | Next: full GRBL job streaming with acknowledgement, pause/resume, and confirmed completion. |
-| Drawing tools | Add raster tracing, direct drawing edits, multiple machine-profile management, and prompt-based revisions. |
+| Drawing workbench | SVG import/export, pattern creation, rotate/mirror/undo, local Ollama chat, and reviewed drawing generation/revision before G-code export. |
+| Plotter bring-up | Port/baud discovery, persistent connection, setup, guided measured calibration, manual/switch home, live positions, XY jog, work origin, and saved presets. Corrected travel and the first full plot still need physical verification. |
+| In-app plotting | Reviewed workspace sketches, pen-up tests, line acknowledgement and Idle checks, progress, pause/resume, and stop/reset. The first real plot still needs physical verification. |
+| Next design tools | Raster tracing, point/stroke editing, and multiple machine-profile management. |
 
 ## Developer checks
 

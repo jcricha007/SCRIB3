@@ -22,12 +22,16 @@ class DesktopTests(TestCase):
         self.addCleanup(folder.cleanup)
         preset_file = Path(folder.name) / "prefs.json"
         root = tk.Tk()
+        def destroy_root():
+            for callback in root.tk.call('after', 'info'):
+                root.tk.call('after', 'cancel', callback)
+            root.destroy()
         def cleanup():
             if getattr(self, 'panel', None) and self.panel.session:
                 self.panel.session.close()
                 self.panel.session.thread.join(2)
             try:
-                root.destroy()
+                destroy_root()
             except tk.TclError:
                 pass
         self.addCleanup(cleanup)
@@ -95,7 +99,7 @@ class DesktopTests(TestCase):
             label = next(w for w in descendants(dialog) if w.winfo_class() == 'TLabel' and str(w.cget('text')).startswith('$22 '))
             entry = next(w for w in label.master.grid_slaves(row=label.grid_info()['row']) if w.winfo_class() == 'TEntry')
             entry.delete(0, 'end'); entry.insert(0, '1')
-            apply = next(w for w in descendants(dialog) if w.winfo_class() == 'TButton')
+            apply = next(w for w in descendants(dialog) if w.winfo_class() == 'TButton' and w.cget('text') == 'Apply changed settings')
             apply.invoke()
             wait(lambda: not panel.session.snapshot()['busy'])
             assert peer.settings[22] == 1
@@ -149,7 +153,7 @@ class DesktopTests(TestCase):
             while panel.session.thread.is_alive():
                 root.update(); sleep(.01)
             assert peer.closed
-            root.destroy()
+            destroy_root()
             root = tk.Tk()
             studio = Studio(root, preset_file=preset_file)
             self.panel = studio.controls
@@ -157,4 +161,4 @@ class DesktopTests(TestCase):
             assert studio.pen_down.get() == 'M3 S70'
             assert self.panel.session is None
             assert abs(to_mm(studio.machine_width.get(), studio.unit) - 200) < .00001
-            root.destroy()
+            destroy_root()

@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
-from queue import Empty, SimpleQueue
-from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, font, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
-from . import ollama, presets
+from . import design, presets
+from .assistant_ui import AssistantWindow
+from .jobs import PlotJob
+from .job_ui import JobWindow
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths, read_svg
-from .gcode import Machine, generate_gcode
+from .gcode import Machine
 from .firmware import SERVO_PROFILE, ServoSettings
 
 INK = "#262a25"
@@ -49,7 +51,9 @@ class Studio:
         self.drawing: Drawing = ()
         self.sheet = Sheet(148, 105, 7)
         self.revision = 0
-        self.results = SimpleQueue()
+        self.undo_state = None
+        self.assistant = None
+        self.calibration = {100: data["x_steps_per_mm"], 101: data["y_steps_per_mm"]}
         self.paper_width = tk.StringVar(value=display(data["paper_width_mm"], self.unit))
         self.paper_height = tk.StringVar(value=display(data["paper_height_mm"], self.unit))
         self.margin = tk.StringVar(value=display(data["margin_mm"], self.unit))
@@ -58,7 +62,7 @@ class Studio:
         self.source_name = tk.StringVar(value="Mountain contours")
         self.status = tk.StringVar(value="Sample loaded. Import an SVG or generate a new drawing.")
         self.stats = tk.StringVar()
-        self.model = tk.StringVar()
+        self.model = tk.StringVar(value=data["ollama_model"])
         self.machine_width = tk.StringVar(value="" if data["machine_width_mm"] is None else display(data["machine_width_mm"], self.unit))
         self.machine_height = tk.StringVar(value="" if data["machine_height_mm"] is None else display(data["machine_height_mm"], self.unit))
         self.feed = tk.StringVar(value="" if data["feed_mm_min"] is None else display(data["feed_mm_min"], self.unit))
@@ -71,11 +75,10 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
-        root.protocol("WM_DELETE_WINDOW", self.controls.shutdown)
+        root.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.refresh()
         if load_warning:
             self.status.set(load_warning)
-        root.after(80, self.poll_results)
 
     def configure_theme(self) -> None:
         families = set(font.families(self.root))
@@ -151,7 +154,7 @@ class Studio:
         machine = ttk.Frame(tabs, padding=12, width=310)
         for tab in (drawing, machine):
             tab.columnconfigure(1, weight=1)
-        tabs.add(drawing, text="Drawing")
+        tabs.add(drawing, text="Design")
         tabs.add(machine, text="Machine")
         self.build_drawing_tab(drawing)
         self.build_machine_tab(machine)
@@ -170,15 +173,27 @@ class Studio:
         ttk.Button(panel, text="Fit to paper", command=self.apply_layout).grid(row=5, columnspan=2, sticky="ew")
         ttk.Separator(panel).grid(row=6, columnspan=2, sticky="ew", pady=12)
 
-        ttk.Label(panel, text="Generate with Ollama", style="Title.TLabel").grid(row=7, columnspan=2, sticky="w")
-        self.field(panel, 8, "Installed model tag", self.model)
-        ttk.Label(panel, text="Drawing prompt", style="Muted.TLabel").grid(row=9, columnspan=2, sticky="w")
-        self.prompt = tk.Text(panel, height=5, width=28, wrap="word", background=PAPER,
-                              foreground=INK, padx=6, pady=4)
-        self.prompt.grid(row=10, columnspan=2, sticky="ew", pady=(3, 7))
-        self.prompt.insert("1.0", "Draw a mountain valley with a winding river and three pine trees.")
-        self.generate_button = ttk.Button(panel, text="Generate drawing", command=self.generate)
-        self.generate_button.grid(row=11, columnspan=2, sticky="ew")
+        ttk.Button(panel, text="Open Ollama assistant", style="Primary.TButton", command=self.open_assistant).grid(
+            row=7, columnspan=2, sticky="ew")
+        ttk.Label(panel, text="Chat, create line art, and revise this design.", style="Muted.TLabel").grid(
+            row=8, columnspan=2, sticky="w", pady=(3, 8))
+        ttk.Label(panel, text="Design tools", style="Title.TLabel").grid(row=9, columnspan=2, sticky="w")
+        self.pattern_kind = tk.StringVar(value="Rosette")
+        self.pattern_detail = tk.StringVar(value="12")
+        ttk.Combobox(panel, textvariable=self.pattern_kind, values=("Grid", "Spiral", "Rosette"),
+                     state="readonly", width=13).grid(row=10, column=0, sticky="ew", pady=4)
+        detail = ttk.Frame(panel)
+        detail.grid(row=10, column=1, sticky="ew")
+        ttk.Label(detail, text="Detail").pack(side="left", padx=5)
+        ttk.Spinbox(detail, textvariable=self.pattern_detail, from_=3, to=40, width=5).pack(side="left")
+        ttk.Button(panel, text="Create pattern", command=self.create_pattern).grid(row=11, columnspan=2, sticky="ew")
+        transforms = ttk.Frame(panel)
+        transforms.grid(row=12, columnspan=2, sticky="ew", pady=6)
+        for operation in ("Rotate 90°", "Mirror X", "Mirror Y"):
+            ttk.Button(transforms, text=operation, padding=(5, 4),
+                       command=lambda op=operation: self.transform_design(op)).pack(side="left", fill="x", expand=True)
+        ttk.Button(panel, text="Undo design", command=self.undo_design).grid(row=13, column=0, sticky="ew")
+        ttk.Button(panel, text="Export SVG", command=self.export_svg).grid(row=13, column=1, sticky="ew")
 
     def build_machine_tab(self, panel: ttk.Frame) -> None:
         profile_panel = ttk.Frame(panel)
@@ -253,9 +268,10 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=1, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=2, name=self.preset_name.get(), units=self.unit,
                           firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
-                          settle=float(self.settle.get()))
+                          settle=float(self.settle.get()), x_steps_per_mm=self.calibration[100],
+                          y_steps_per_mm=self.calibration[101], ollama_model=self.model.get())
             presets.save(self.preset_file, values)
         except (OSError, ValueError) as exc:
             messagebox.showerror("Save preset", str(exc), parent=self.root)
@@ -264,6 +280,7 @@ class Studio:
 
     def restore_preset(self):
         data = presets.builtin()
+        self.calibration = {100: data["x_steps_per_mm"], 101: data["y_steps_per_mm"]}
         self.unit = data["units"]
         self.unit_choice.set(UNIT_NAMES[self.unit])
         for name, variable in self.dimension_fields().items():
@@ -279,7 +296,7 @@ class Studio:
         try:
             dimensions = tuple(to_mm(field.get(), self.unit) for field in (self.paper_width, self.paper_height, self.margin))
         except ValueError as exc:
-            raise ValueError("Enter numeric paper dimensions and margin on the Drawing tab.") from exc
+            raise ValueError("Enter numeric paper dimensions and margin on the Design tab.") from exc
         sheet = Sheet(*dimensions)
         fitted = fit_to_sheet(self.source, sheet)
         self.sheet = sheet
@@ -332,6 +349,7 @@ class Studio:
 
     def set_drawing(self, name: str, source: Drawing) -> None:
         old_source = self.source
+        old_name = self.source_name.get()
         self.source = source
         try:
             self.refresh()
@@ -339,7 +357,55 @@ class Studio:
             self.source = old_source
             raise
         self.source_name.set(name)
+        self.undo_state = (old_name, old_source)
         self.revision += 1
+
+    def open_assistant(self):
+        if self.assistant is None:
+            self.assistant = AssistantWindow(self)
+        else:
+            self.assistant.window.deiconify()
+            self.assistant.window.lift()
+
+    def shutdown(self):
+        if self.assistant is not None:
+            self.assistant.shutdown()
+        self.controls.shutdown()
+
+    def create_pattern(self):
+        try:
+            self.set_drawing(self.pattern_kind.get(), design.pattern(self.pattern_kind.get(), int(self.pattern_detail.get())))
+            self.status.set("Pattern ready. Undo design restores the previous drawing.")
+        except ValueError as exc:
+            messagebox.showerror("Create pattern", str(exc), parent=self.root)
+
+    def transform_design(self, operation):
+        try:
+            self.set_drawing(self.source_name.get(), design.transform(self.source, operation))
+            self.status.set(operation + " applied.")
+        except ValueError as exc:
+            messagebox.showerror("Transform design", str(exc), parent=self.root)
+
+    def undo_design(self):
+        if self.undo_state is not None:
+            previous = self.undo_state
+            try:
+                self.set_drawing(*previous)
+                self.undo_state = None
+                self.status.set("Previous design restored.")
+            except ValueError as exc:
+                messagebox.showerror("Undo design", str(exc), parent=self.root)
+
+    def export_svg(self):
+        try:
+            self.refresh()
+            document = design.svg_document(self.drawing, self.sheet)
+            file = filedialog.asksaveasfilename(parent=self.root, defaultextension=".svg", filetypes=[("SVG drawing", "*.svg")])
+            if file:
+                Path(file).write_text(document, encoding="utf-8")
+                self.status.set(f"Saved {Path(file).name}.")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Export SVG", str(exc), parent=self.root)
 
     def load_sample(self) -> None:
         try:
@@ -364,56 +430,13 @@ class Studio:
     def scan_ports(self) -> None:
         self.controls.find_ports()
 
-    def run_background(self, action, callback, button: ttk.Button, title: str) -> None:
-        button.state(["disabled"])
-
-        def work() -> None:
-            try:
-                result = action()
-            except (OSError, ValueError) as exc:
-                self.results.put((button, title, callback, None, str(exc)))
-            else:
-                self.results.put((button, title, callback, result, None))
-
-        Thread(target=work, daemon=True).start()
-
-    def poll_results(self) -> None:
-        while True:
-            try:
-                button, title, callback, result, error = self.results.get_nowait()
-            except Empty:
-                break
-            button.state(["!disabled"])
-            try:
-                if error is not None:
-                    raise ValueError(error)
-                callback(result)
-            except ValueError as exc:
-                self.status.set(f"{title} failed.")
-                messagebox.showerror(title, str(exc), parent=self.root)
-        self.root.after(80, self.poll_results)
-
-    def generate(self) -> None:
-        prompt = self.prompt.get("1.0", "end-1c")
-        model = self.model.get()
-        revision = self.revision
-        self.status.set("Generating line art in Ollama…")
-
-        def show(drawing: Drawing) -> None:
-            if self.revision != revision:
-                self.status.set("Drawing changed during generation. Generate again to replace it.")
-                return
-            self.set_drawing("Ollama drawing", drawing)
-            self.status.set("Ollama drawing ready for preview.")
-
-        self.run_background(lambda: ollama.generate_drawing(model, prompt), show,
-                            self.generate_button, "Generate drawing")
-
     def inspect(self) -> None:
         self.controls.read_report()
 
     def review(self) -> None:
         try:
+            if self.controls.session and self.controls.session.snapshot()["reset_required"]:
+                raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
             self.refresh()
             servo = None
             if self.firmware.get() == SERVO_PROFILE:
@@ -425,20 +448,64 @@ class Studio:
                 to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
                 servo=servo,
             )
-            program = generate_gcode(self.drawing, self.sheet, machine, units=self.unit)
+            machine = replace(machine, settle=max(.5, machine.settle))
+            session = self.controls.session
+            snap = session.snapshot() if session else {}
+            job = PlotJob(self.drawing, self.sheet, machine, self.unit, True,
+                          tuple(sorted(snap.get('settings', {}).items())), snap.get('reference', -1))
+            program = job.program()
         except ValueError as exc:
             error = str(exc)
             if "could not convert string to float" in error:
                 error = "Enter the plotter’s X/Y travel, draw feed, and verified pen commands on the Machine tab."
             messagebox.showerror("Review G-code", error, parent=self.root)
             return
-        lines = program.splitlines()
-        preview = "\n".join(lines[:400])
-        if len(lines) > 400:
-            preview += f"\n\nShowing 400 of {len(lines):,} lines. Save to view the full program."
-        dialog, controls = self.text_dialog("G-code review", preview)
-        ttk.Button(controls, text="Save .gcode", style="Primary.TButton",
-                   command=lambda: self.save_program(dialog, program)).pack(side="right")
+        def preview(program):
+            lines = program.splitlines()
+            return "\n".join(lines[:400]) + (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else '')
+        dialog, controls = self.text_dialog("G-code review / Run sketch", preview(program))
+        dialog.geometry('680x540')
+        dry_run = tk.BooleanVar(value=True)
+        def update_preview():
+            nonlocal job, program
+            job = replace(job, dry_run=dry_run.get())
+            program = job.program()
+            dialog.output.configure(state='normal')
+            dialog.output.delete('1.0', 'end')
+            dialog.output.insert('1.0', preview(program))
+            dialog.output.configure(state='disabled')
+        ttk.Checkbutton(controls, text='Pen-up test (uncheck to draw with ink)', variable=dry_run,
+                        command=update_preview).pack(anchor='w')
+        ttk.Label(controls, text='Set paper XY zero at the lower-left corner first. Minimum pen settle: 0.5 seconds.',
+                  wraplength=630, style='Muted.TLabel').pack(anchor='w', pady=4)
+        actions = ttk.Frame(controls)
+        actions.pack(fill='x')
+        def signature():
+            return (self.revision, self.unit, self.firmware.get(), self.pen_up.get(), self.pen_down.get(),
+                    self.settle.get(), self.optimize.get(), *(v.get() for v in self.dimension_fields().values()))
+        reviewed = signature()
+        def run():
+            try:
+                if self.controls.session is not session or session is None:
+                    raise ValueError('Connect to the Arduino, set paper XY zero, then review again.')
+                if signature() != reviewed:
+                    raise ValueError('The drawing or settings changed. Close this review and review the new drawing.')
+                current = session.snapshot()
+                if not current['connected'] or current['busy'] or current['state'] != 'Idle' or not current['fresh']:
+                    raise ValueError('Wait for a connected, Idle controller.')
+                if not current['origin_set'] or current['reference'] != job.reference:
+                    raise ValueError('Set paper XY zero or manual home during this connection, then review again.')
+                if any(abs(current['settings'].get(n, 0) - self.calibration[n]) > .0005 for n in (100, 101)):
+                    raise ValueError('Controller X/Y steps differ from the saved calibration. Use Setup before running.')
+                operation = session.request('run_job', job=job)
+            except ValueError as exc:
+                messagebox.showerror('Run sketch', str(exc), parent=dialog)
+            else:
+                JobWindow(self.root, session, operation)
+                dialog.destroy()
+                self.status.set('Sketch running. Use its progress window to pause, resume, or stop.')
+        ttk.Button(actions, text='Save .gcode', command=lambda: self.save_program(dialog, program)).pack(side='left')
+        ttk.Button(actions, text='Run sketch', style='Primary.TButton', command=run).pack(side='right')
 
     def save_program(self, parent: tk.Toplevel, program: str) -> None:
         file = filedialog.asksaveasfilename(parent=parent, defaultextension=".gcode",
@@ -468,6 +535,7 @@ class Studio:
         scroll.configure(command=output.yview)
         output.insert("1.0", content)
         output.configure(state="disabled")
+        dialog.output = output
         return dialog, controls
 
 

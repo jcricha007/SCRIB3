@@ -11,6 +11,7 @@ from .discovery import detect
 from .firmware import SERVO_PROFILE
 from .grbl import ports
 from .units import display, from_mm, to_mm, setting_display, setting_native, setting_label
+from .calibration_ui import CalibrationWindow
 
 
 class ControlPanel(ttk.Frame):
@@ -213,7 +214,7 @@ class ControlPanel(ttk.Frame):
         dialog = tk.Toplevel(self.studio.root)
         dialog.title(f"Plotter setup — {unit}")
         dialog.transient(self.studio.root)
-        dialog.geometry("560x490")
+        dialog.geometry("580x650")
         panel = ttk.Frame(dialog, padding=12)
         panel.pack(fill="both", expand=True)
         ttk.Label(panel, text="Values read from this Arduino", style="Title.TLabel").pack(anchor="w")
@@ -242,6 +243,16 @@ class ControlPanel(ttk.Frame):
             else:
                 help_text = "The supplied servo firmware needs laser mode $32=0.\nSet and test lift commands on the Machine and Control tabs."
             ttk.Label(page, text=help_text, wraplength=480, style="Muted.TLabel").grid(row=row, columnspan=2, sticky="w", pady=(10, 0))
+            if group == "Motion":
+                def load_calibration():
+                    for n in (100, 101):
+                        variables[n].set(f'{setting_display(n, self.studio.calibration[n], unit):.10g}')
+                ttk.Button(page, text="Use preset X/Y calibration", command=load_calibration).grid(
+                    row=row+1, columnspan=2, sticky="ew", pady=5)
+                def calibrate():
+                    dialog.destroy()
+                    CalibrationWindow(self)
+                ttk.Button(page, text="Guided calibration…", command=calibrate).grid(row=row+2, columnspan=2, sticky="ew")
         def apply():
             try:
                 if self.session is not session:
@@ -311,6 +322,11 @@ class ControlPanel(ttk.Frame):
                     status_text = {"set_home": "Manual home set here; G54 XY is zero. No switch homing was performed.",
                                    "go_home": "Returning to manual home with the pen raised. Wait for Idle."}
                     self.studio.status.set(status_text.get(value, "Command acknowledged. Live status shows motion completion."))
+                    if value == "settings" and snap.get("reset_required"):
+                        for n in (100, 101):
+                            if n in snap["settings"]:
+                                self.studio.calibration[n] = snap["settings"][n]
+                        self.studio.status.set("Calibration changed. Use Reset / abort, then reconnect before moving. Save preset to remember these values.")
                     if value == "refresh" and self.show_report:
                         self.show_report = False
                         dialog, controls = self.studio.text_dialog("GRBL connection report", snap["report"])
@@ -321,12 +337,16 @@ class ControlPanel(ttk.Frame):
         fresh = snap.get("fresh", False)
         ready = snap.get("connected", False) and not snap.get("busy", True) and fresh
         state = snap.get("state", "Disconnected")
-        self.state_text.set(state + (" · waiting for status" if active and not fresh else ""))
+        needs_reset = snap.get("reset_required", False)
+        self.state_text.set("Reset required after calibration" if needs_reset else state + (" · waiting for status" if active and not fresh else ""))
         def xy(position):
             return f"X {from_mm(position[0], self.studio.unit):9.4f}   Y {from_mm(position[1], self.studio.unit):9.4f}" if position and fresh else "—"
         self.position_text.set(f"Work {self.studio.unit}: {xy(snap.get('work'))}\nMach {self.studio.unit}: {xy(snap.get('machine'))}")
         self.pin_text.set("Home: " + ("set" if snap.get("manual_home") is not None else "not set")
                           + " | Inputs: " + (snap.get("pins") or ("none" if fresh else "—")))
+        if active and not needs_reset and any(n in snap.get('settings', {}) and
+                abs(snap['settings'][n] - self.studio.calibration[n]) > .0005 for n in (100, 101)):
+            self.pin_text.set("X/Y calibration differs from preset — see Setup")
         for name, button in self.buttons.items():
             if name in {"Find ports", "Connect"}:
                 enabled = not active and not self.scanning
@@ -337,7 +357,9 @@ class ControlPanel(ttk.Frame):
             elif name == "Connection log":
                 enabled = self.session is not None
             elif name == "Cancel jog":
-                enabled = active and (state == "Jog" or snap.get("busy", False))
+                enabled = active and snap.get('job', {}).get('state') not in {'running', 'paused'} and (state == "Jog" or snap.get("busy", False))
+            elif needs_reset and name not in {"Setup…", "Read GRBL"}:
+                enabled = False
             elif name == "Unlock alarm":
                 enabled = ready and state == "Alarm"
             elif name == "Go to manual home":
