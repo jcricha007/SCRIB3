@@ -20,7 +20,7 @@ class PresetUnitTests(TestCase):
         self.assertIsNone(data['machine_width_mm'])
         self.assertEqual((data['paper_width_mm'], data['paper_height_mm'], data['margin_mm']), (279.4, 215.9, 12.7))
         self.assertEqual(data['paper_mount'], 'top_left_y')
-        self.assertEqual((data['feed_mm_min'], data['jog_feed_mm_min']), (300, 150))
+        self.assertEqual((data['feed_mm_min'], data['jog_feed_mm_min']), (3000, 150))
         self.assertNotIn('manual_home', data)
         servo = ServoSettings(1000, 0, 0, 100)
         self.assertEqual((servo.timer_count(180), servo.timer_count(70)), (13, 24))

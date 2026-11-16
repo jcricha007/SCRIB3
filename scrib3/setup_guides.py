@@ -5,9 +5,9 @@ from tkinter import ttk
 from .units import display, setting_display, to_mm
 from .paper_mount import MOUNTS, origin_corner, required_travel
 
-DRAW_FEED = 300.0
+DRAW_FEED = 3000.0
 JOG_FEED = 150.0
-SMOOTH_SETTINGS = {11: .020, 110: 600.0, 111: 600.0, 120: 25.0, 121: 25.0}
+SMOOTH_SETTINGS = {11: .020, 110: 3000.0, 111: 3000.0, 120: 25.0, 121: 25.0}
 PAPER_SIZES = {
     'US Letter portrait': (215.9, 279.4),
     'US Letter landscape': (279.4, 215.9),
@@ -28,7 +28,7 @@ class MotionDefaultsWindow:
         panel = ttk.Frame(self.window, padding=16)
         panel.pack(fill='both', expand=True)
         ttk.Label(panel, text='Smooth motion starting values', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(panel, text='The runner keeps XY segments in the motion planner. These moderate starting values still need a pen-up test on your machine.',
+        ttk.Label(panel, text='The runner keeps XY segments in the motion planner. Check the updated run speed with a pen-up test on your machine.',
                   wraplength=570).pack(anchor='w', pady=8)
         unit = self.unit = studio.unit
         ttk.Label(panel, text=f'Draw: {display(DRAW_FEED, unit)} {unit}/min   |   Jog: {display(JOG_FEED, unit)} {unit}/min',

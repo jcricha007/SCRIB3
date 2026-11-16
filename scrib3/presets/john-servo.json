@@ -12,7 +12,7 @@
   "margin_mm": 12.7,
   "machine_width_mm": null,
   "machine_height_mm": null,
-  "feed_mm_min": 300.0,
+  "feed_mm_min": 3000.0,
   "jog_step_mm": 0.254,
   "jog_feed_mm_min": 150.0,
   "x_steps_per_mm": 5.0,
