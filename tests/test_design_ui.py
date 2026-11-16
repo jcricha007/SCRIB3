@@ -202,9 +202,10 @@ class DesignDesktopTests(TestCase):
             self.assertEqual({n: peer.settings[n] for n in SMOOTH_SETTINGS}, SMOOTH_SETTINGS)
             self.assertEqual({n: v for n, v in peer.settings.items() if n not in SMOOTH_SETTINGS},
                              {n: v for n, v in before.items() if n not in SMOOTH_SETTINGS})
-            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 300, places=6)
+            # Allow inch-display rounding, well below exported feed precision.
+            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 3000, delta=1e-5)
             self.assertAlmostEqual(to_mm(panel.rate.get(), app.unit), 150, places=6)
-            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 300, places=6)
+            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 3000, delta=1e-5)
             self.assertFalse(panel.session.snapshot()['reset_required'])
             app.tabs.select(1); self.root.geometry('800x650'); self.root.update()
             button = app.motion_defaults_button

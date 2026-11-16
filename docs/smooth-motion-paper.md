@@ -6,15 +6,17 @@ Progress distinguishes **accepted** lines (which may still be queued) from motio
 
 ## Apply the starting motion profile
 
-On **Machine → Smooth motion**, inspect the current/proposed values, then choose **Apply app + controller** while connected and Idle. The app verifies controller readback before changing/saving app speeds. **Use app speeds only** leaves the controller unchanged. These are moderate starting values for physical testing, not measured maximum capabilities.
+On **Machine → Smooth motion**, inspect the current/proposed values, then choose **Apply app + controller** while connected and Idle. The app verifies controller readback before changing/saving app speeds. **Use app speeds only** leaves the controller unchanged. These are starting values for physical testing, not measured maximum capabilities.
 
 | Setting | Starting value |
 | --- | --- |
-| Drawing feed | 300 mm/min = 11.811 in/min |
+| Drawing feed | 3,000 mm/min = 118.110 in/min |
 | Manual jog feed | 150 mm/min = 5.906 in/min |
-| X/Y maximum rate, `$110` / `$111` | 600 mm/min = 23.622 in/min |
+| X/Y maximum rate, `$110` / `$111` | 3,000 mm/min = 118.110 in/min |
 | X/Y acceleration, `$120` / `$121` | 25 mm/s² = 0.9843 in/s² |
 | Junction deviation, `$11` | 0.020 mm = 0.0007874 in |
+
+The drawing feed is 10× the previous 300 mm/min default. The axis rate caps rise to 3,000 mm/min so they can support that feed; acceleration and short curves can still reduce actual speed. Existing installations must choose **Apply app + controller** to adopt the new values and save the app feed. Manual jog feed remains 150 mm/min.
 
 This profile preserves steps/mm, direction, travel limits, homing, and pen positions. Existing saved preferences are preserved on upgrade. Fresh/restored bundled presets use the new drawing/jog speeds and a 0.5-second servo settle time. Connecting never applies EEPROM settings. Close old G-code reviews and review again after changing speeds.
 
