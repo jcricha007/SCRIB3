@@ -3,7 +3,7 @@ from math import isfinite
 
 MM_PER_INCH = 25.4
 UNIT_NAMES = {"in": "Inches", "mm": "Millimeters"}
-LENGTH_SETTINGS = {24, 25, 27, 110, 111, 120, 121, 130, 131}
+LENGTH_SETTINGS = {11, 24, 25, 27, 110, 111, 120, 121, 130, 131}
 STEPS_SETTINGS = {100, 101}
 
 

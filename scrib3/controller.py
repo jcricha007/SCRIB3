@@ -19,9 +19,12 @@ from .firmware import ServoSettings
 from .gcode import pen_command
 from .jobs import PlotJob
 
+JOB_IDLE_ACK_TIMEOUT = 15
+
 
 # Editable EEPROM fields; all other firmware settings remain untouched.
 SETUP_FIELDS = (
+    (11, "Motion", "Junction deviation (mm)", .001, 1, False),
     (3, "Motion", "Direction mask (X=1, Y=2, Z=4)", 0, 7, True),
     (100, "Motion", "X steps/mm", .001, 100000, False),
     (101, "Motion", "Y steps/mm", .001, 100000, False),
@@ -159,7 +162,7 @@ class Controller:
         self.last_result = None
         self.origin_set = False
         self.reference = 0
-        self.job = dict(state='idle', completed=0, total=0, error='')
+        self.job = dict(state='idle', accepted=0, completed=0, total=0, error='')
         self.job_paused = False
         self.job_controls = Queue()
         self.aborted = False
@@ -221,6 +224,12 @@ class Controller:
     def reset(self):
         self.reset_requested.set()
 
+    def invalidate_paper_origin(self):
+        """An app mounting change needs a newly established paper corner."""
+        with self.lock:
+            self.origin_set = False
+            self.reference += 1
+
     def pause_job(self):
         self.job_controls.put('pause')
 
@@ -241,7 +250,8 @@ class Controller:
     def _pump(self):
         if self.stop.is_set() or self.reset_requested.is_set():
             # Disconnect during motion/unknown execution aborts before closing.
-            if self.reset_requested.is_set() or self.reset_required or self.pending or self.state not in {"Idle", "Alarm"}:
+            if (self.reset_requested.is_set() or self.reset_required or self.pending
+                    or self.job['state'] in {'running', 'paused'} or self.state not in {"Idle", "Alarm"}):
                 self._write(b"\x18")
                 self.aborted = True
                 self._note("Reset sent. Reconnect and re-establish position before moving.")
@@ -298,6 +308,8 @@ class Controller:
                             base = self.report.split("\n<", 1)[0]
                             self.report = base + "\n" + line
                 self.poll_pending = False
+                if self.job['state'] in {'running', 'paused'} and status.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
+                    raise SessionFault(f'Job stopped: controller reports {status.state}.')
                 continue
             self._note(line)
             if line.startswith("Grbl "):
@@ -342,7 +354,7 @@ class Controller:
         self.poll_time = monotonic()
         self._wait(lambda: not self.poll_pending, 4)
 
-    def _command(self, command: str, timeout: float = 5) -> list[str]:
+    def _command(self, command: str, timeout: float = 5, *, idle_timeout=None) -> list[str]:
         if self.stop.is_set() or self.reset_requested.is_set():
             self._pump()
         if self.cancel_requested.is_set() and command.startswith("$J="):
@@ -351,7 +363,20 @@ class Controller:
         self._note("> " + command)
         self.pending, self.reply, self.lines = command, None, []
         self._write(command.encode("ascii") + b"\n")
-        self._wait(lambda: self.reply is not None, timeout)
+        idle_since = None
+        def acknowledged():
+            nonlocal idle_since
+            if self.reply is not None:
+                return True
+            if idle_timeout is not None and self.state == 'Idle' and not self.job_paused:
+                if idle_since is None:
+                    idle_since = monotonic()
+                elif monotonic() - idle_since > idle_timeout:
+                    raise SessionFault('GRBL is Idle but did not acknowledge the command. Reset and reconnect before continuing.')
+            else:
+                idle_since = None
+            return False
+        self._wait(acknowledged, timeout)
         lines, reply = self.lines, self.reply
         self.pending = None
         if reply != "ok":
@@ -522,23 +547,37 @@ class Controller:
                 raise ValueError('Servo settings or override changed. Read GRBL and review again.')
         lines = job.commands()
         with self.lock:
-            self.job = dict(state='running', completed=0, total=len(lines), error='')
+            self.job = dict(state='running', accepted=0, completed=0, total=len(lines), error='')
         self.job_paused = False
+        def wait_idle():
+            self._fresh_status()
+            def finished():
+                if self.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
+                    raise SessionFault(f'Job stopped: controller reports {self.state}.')
+                return self.state == 'Idle' and not self.job_paused
+            self._wait(finished, 3600)
         try:
             for index, line in enumerate(lines):
                 self._wait(lambda: not self.job_paused, 3600)
-                self._command(line, timeout=15)
-                self._fresh_status()
-                def finished():
-                    if self.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
-                        raise SessionFault(f'Job stopped: controller reports {self.state}.')
-                    return self.state == 'Idle' and not self.job_paused
-                # Send only after the previous line has completed. This bounds
-                # buffering and keeps stops, errors, and pen transitions ordered.
-                self._wait(finished, 3600)
+                xy_move = line.startswith(('G0 X', 'G1 X'))
+                if not xy_move:
+                    # Drain motion before pen/modal/dwell commands, including Z lifts.
+                    wait_idle()
+                    with self.lock:
+                        self.job['completed'] = index
+                # One unacknowledged line fits GRBL's receive buffer. An ok lets
+                # the next XY segment enter the planner before prior motion ends.
+                # Full planners may delay ok until an earlier move finishes.
+                self._command(line, timeout=3600, idle_timeout=JOB_IDLE_ACK_TIMEOUT)
                 with self.lock:
-                    self.job['completed'] = index + 1
+                    self.job['accepted'] = index + 1
+                if not xy_move:
+                    wait_idle()
+                    with self.lock:
+                        self.job['completed'] = index + 1
+            wait_idle()
             with self.lock:
+                self.job['completed'] = len(lines)
                 self.job['state'] = 'completed'
         except (OSError, ValueError) as exc:
             with self.lock:

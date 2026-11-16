@@ -11,6 +11,8 @@ from scrib3 import controls, ollama, presets
 from scrib3.app import Studio
 from scrib3.calibration_ui import CalibrationWindow
 from scrib3.controller import Controller
+from scrib3.setup_guides import MotionDefaultsWindow, PaperGuideWindow, SMOOTH_SETTINGS
+from scrib3.units import to_mm
 from test_controller import FakeSerial
 
 
@@ -27,7 +29,7 @@ class DesignDesktopTests(TestCase):
 
     def tearDown(self):
         for window in self.windows:
-            if not window.closed:
+            if not getattr(window, 'closed', False):
                 window.close()
         if self.app.assistant:
             self.app.assistant.shutdown()
@@ -185,3 +187,53 @@ class DesignDesktopTests(TestCase):
             self.assertFalse(error.called, error.call_args)
             self.assertNotIn(b'M3 S70.000\n', peer.writes)
             self.assertTrue(peer.normal_moves)
+
+    def test_smooth_motion_apply_readback_preserves_calibration_and_paper_orientation(self):
+        peer = FakeSerial()
+        with patch.object(controls, 'Controller', side_effect=lambda *a: Controller(*a, serial_factory=lambda *a, **k: peer)):
+            app, panel = self.app, self.app.controls
+            app.port.set('COM7'); panel.connect()
+            self.wait(lambda: panel.session.snapshot()['connected'])
+            app.feed.set('1'); panel.rate.set('2')
+            before = dict(peer.settings)
+            motion = MotionDefaultsWindow(app); self.windows.append(motion)
+            motion.apply_controller()
+            self.wait(lambda: motion.pending is None and not panel.session.snapshot()['busy'])
+            self.assertEqual({n: peer.settings[n] for n in SMOOTH_SETTINGS}, SMOOTH_SETTINGS)
+            self.assertEqual({n: v for n, v in peer.settings.items() if n not in SMOOTH_SETTINGS},
+                             {n: v for n, v in before.items() if n not in SMOOTH_SETTINGS})
+            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 300, places=6)
+            self.assertAlmostEqual(to_mm(panel.rate.get(), app.unit), 150, places=6)
+            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 300, places=6)
+            self.assertFalse(panel.session.snapshot()['reset_required'])
+            app.tabs.select(1); self.root.geometry('800x650'); self.root.update()
+            button = app.motion_defaults_button
+            self.assertTrue(button.winfo_viewable())
+            self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
+                                 app.tabs.winfo_rooty() + app.tabs.winfo_height())
+            app.machine_width.set('7'); app.machine_height.set('7')
+            guide = PaperGuideWindow(app)
+            for name, dims in [('US Letter landscape', (279.4, 215.9)), ('US Letter portrait', (215.9, 279.4))]:
+                guide.choice.set(name); guide.apply(); self.root.update()
+                self.assertAlmostEqual(app.sheet.width, dims[0])
+                self.assertAlmostEqual(app.sheet.height, dims[1])
+                self.assertIn('exceeds', guide.status.get())
+                self.assertEqual(app.machine_width.get(), '7')
+            self.assertAlmostEqual(app.sheet.margin, 12.7)
+            for geometry in ('660x740', '620x700'):
+                guide.window.geometry(geometry); self.root.update()
+                self.assertGreater(guide.canvas.winfo_height(), 200)
+            panel.perform('zero')
+            self.wait(lambda: not panel.session.snapshot()['busy'])
+            self.assertTrue(panel.session.snapshot()['origin_set'])
+            app.machine_width.set('8.5'); app.machine_height.set('11')
+            guide.use_john(); self.root.update()
+            self.assertEqual(app.paper_mount.get(), 'top_left_y')
+            self.assertEqual(presets.load(app.preset_file)['paper_mount'], 'top_left_y')
+            self.assertIn('Fits configured', guide.status.get())
+            self.assertIn('+Y moves right; -X moves down', guide.instructions.get())
+            self.assertFalse(panel.session.snapshot()['origin_set'])
+            self.assertEqual(int(panel.buttons['Y +'].grid_info()['column']), 2)
+            self.assertEqual(int(panel.buttons['Y −'].grid_info()['column']), 0)
+            self.assertEqual(int(panel.buttons['X −'].grid_info()['row']), 2)
+            guide.window.destroy()
