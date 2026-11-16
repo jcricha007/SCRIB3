@@ -28,6 +28,7 @@ class FakeSerial:
         self.jog_ack = False
         self.errors = {}
         self.hold_setting = False
+        self.block_dwell = False
         self.fragment = 7
         self.emit("Grbl 1.1h ['$' for help]")
 
@@ -89,6 +90,9 @@ class FakeSerial:
                 self.state = "Home"
                 if not self.block_home_ack:
                     self.state = "Idle"
+                    self.emit("ok")
+            elif line.startswith("G4 P"):
+                if not self.block_dwell:
                     self.emit("ok")
             elif line == "$X":
                 self.state = "Idle"

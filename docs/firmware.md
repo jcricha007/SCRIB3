@@ -44,6 +44,12 @@ These are calculated reference values. The source expression can exceed its decl
 
 The profile uses reported $30/$31 values, requires $32=0 and spindle override 100%, and checks the S value after G-code formatting. These checks use a settings snapshot. Read GRBL again after changing the controller settings or override. The mechanically usable servo travel still needs to be established on the assembled plotter.
 
+## Saved pen positions for John's plotter
+
+John reported `M3 S240` as fully raised, then selected `M3 S180` as the preferred raised position and `M3 S70` as the lowered position. Those two selected commands are bundled in SCRIB3's default preset. They are observed positions for this assembly, not general servo angle values. Axis steps/mm and usable travel remain uncalibrated.
+
+Startup/reset still selects the original M5 position, which John found lower than desired. The preset does not modify or flash firmware.
+
 ## First setup step
 
 1. With the plotter idle, connect the Arduino over USB.

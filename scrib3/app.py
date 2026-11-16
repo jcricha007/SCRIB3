@@ -7,7 +7,8 @@ import tkinter as tk
 from tkinter import filedialog, font, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
-from . import ollama
+from . import ollama, presets
+from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths, read_svg
@@ -24,7 +25,7 @@ TEAL = "#598676"
 
 
 class Studio:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, preset_file: Path | None = None) -> None:
         self.root = root
         root.title("SCRIB3 | Pen Plotter Studio")
         root.geometry("1120x740")
@@ -32,34 +33,48 @@ class Studio:
         root.configure(background=BACKGROUND)
         self.configure_theme()
 
+        self.preset_file = preset_file if preset_file is not None else presets.preset_path()
+        load_warning = ""
+        try:
+            self.initial_preset = presets.load(self.preset_file)
+        except (OSError, ValueError) as exc:
+            self.initial_preset = presets.builtin()
+            load_warning = f"Saved preset could not be loaded: {exc} Built-in preset loaded."
+        data = self.initial_preset
+        self.unit = data["units"]
+        self.unit_choice = tk.StringVar(value=UNIT_NAMES[self.unit])
+        self.unit_labels = []
+        self.preset_name = tk.StringVar(value=data["name"])
         self.source: Drawing = sample()
         self.drawing: Drawing = ()
         self.sheet = Sheet(148, 105, 7)
         self.revision = 0
         self.results = SimpleQueue()
-        self.paper_width = tk.StringVar(value="148")
-        self.paper_height = tk.StringVar(value="105")
-        self.margin = tk.StringVar(value="7")
+        self.paper_width = tk.StringVar(value=display(data["paper_width_mm"], self.unit))
+        self.paper_height = tk.StringVar(value=display(data["paper_height_mm"], self.unit))
+        self.margin = tk.StringVar(value=display(data["margin_mm"], self.unit))
         self.optimize = tk.BooleanVar(value=True)
         self.show_travel = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
         self.status = tk.StringVar(value="Sample loaded. Import an SVG or generate a new drawing.")
         self.stats = tk.StringVar()
         self.model = tk.StringVar()
-        self.machine_width = tk.StringVar()
-        self.machine_height = tk.StringVar()
-        self.feed = tk.StringVar()
-        self.pen_up = tk.StringVar()
-        self.pen_down = tk.StringVar()
-        self.settle = tk.StringVar(value="0")
+        self.machine_width = tk.StringVar(value="" if data["machine_width_mm"] is None else display(data["machine_width_mm"], self.unit))
+        self.machine_height = tk.StringVar(value="" if data["machine_height_mm"] is None else display(data["machine_height_mm"], self.unit))
+        self.feed = tk.StringVar(value="" if data["feed_mm_min"] is None else display(data["feed_mm_min"], self.unit))
+        self.pen_up = tk.StringVar(value=data["pen_up"])
+        self.pen_down = tk.StringVar(value=data["pen_down"])
+        self.settle = tk.StringVar(value=f"{data['settle']:g}")
         self.port = tk.StringVar()
         self.baud = tk.StringVar(value="115200")
-        self.firmware = tk.StringVar(value="Manual commands")
+        self.firmware = tk.StringVar(value=data["firmware"])
         self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
         root.protocol("WM_DELETE_WINDOW", self.controls.shutdown)
         self.refresh()
+        if load_warning:
+            self.status.set(load_warning)
         root.after(80, self.poll_results)
 
     def configure_theme(self) -> None:
@@ -94,6 +109,14 @@ class Studio:
         ttk.Button(header, text="Review G-code", style="Primary.TButton", command=self.review).pack(
             side="right", pady=5
         )
+
+        unit_bar = ttk.Frame(header)
+        unit_bar.pack(side="right", padx=12)
+        ttk.Label(unit_bar, text="Units").pack(side="left", padx=(0, 5))
+        self.unit_picker = ttk.Combobox(unit_bar, textvariable=self.unit_choice,
+                                       values=tuple(UNIT_NAMES.values()), state="readonly", width=11)
+        self.unit_picker.pack(side="left")
+        self.unit_picker.bind("<<ComboboxSelected>>", self.change_units)
 
         tk.Label(frame, textvariable=self.status, background=BACKGROUND, foreground=MUTED,
                  wraplength=730, height=2, justify="left", anchor="w").pack(side="bottom", anchor="w")
@@ -138,9 +161,9 @@ class Studio:
 
     def build_drawing_tab(self, panel: ttk.Frame) -> None:
         ttk.Label(panel, text="Paper and toolpath", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
-        self.field(panel, 1, "Paper width (mm)", self.paper_width)
-        self.field(panel, 2, "Paper height (mm)", self.paper_height)
-        self.field(panel, 3, "Margin (mm)", self.margin)
+        self.field(panel, 1, "Paper width ({unit})", self.paper_width)
+        self.field(panel, 2, "Paper height ({unit})", self.paper_height)
+        self.field(panel, 3, "Margin ({unit})", self.margin)
         ttk.Checkbutton(panel, text="Order strokes by nearest endpoint", variable=self.optimize).grid(
             row=4, columnspan=2, sticky="w", pady=4
         )
@@ -169,30 +192,92 @@ class Studio:
         panel = settings_panel
         ttk.Label(panel, text="Plotter settings", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
         for row, (label, variable) in enumerate((
-            ("Usable X travel (mm)", self.machine_width),
-            ("Usable Y travel (mm)", self.machine_height),
-            ("Draw feed (mm/min)", self.feed),
+            ("Usable X travel ({unit})", self.machine_width),
+            ("Usable Y travel ({unit})", self.machine_height),
+            ("Draw feed ({unit}/min)", self.feed),
             ("Pen up command", self.pen_up),
             ("Pen down command", self.pen_down),
             ("Pen settle (sec)", self.settle),
         ), start=1):
             self.field(panel, row, label, variable)
-        ttk.Label(panel, text="Use your firmware’s verified pen commands.\nSet G54 XY zero at the paper’s lower left.",
-                  style="Muted.TLabel").grid(row=7, columnspan=2, sticky="w", pady=(6, 0))
-        ttk.Separator(panel).grid(row=8, columnspan=2, sticky="ew", pady=12)
-
+        ttk.Label(panel, text="Z pen commands use mm; servo S values are unitless.",
+                  style="Muted.TLabel", wraplength=320).grid(row=7, columnspan=2, sticky="w", pady=(6, 0))
         ttk.Button(panel, text="Use controller X/Y travel", command=lambda: self.controls.copy_travel()).grid(
-            row=9, columnspan=2, sticky="ew")
-        ttk.Label(panel, text="Connect, set up, home, and jog on the Control tab.\nOpening the port can reset the Arduino\nand move the servo.",
-                  style="Muted.TLabel").grid(row=10, columnspan=2, sticky="w", pady=(8, 0))
+            row=8, columnspan=2, sticky="ew", pady=(8, 4))
+        ttk.Separator(panel).grid(row=9, columnspan=2, sticky="ew", pady=6)
+        self.field(panel, 10, "Preset name", self.preset_name)
+        ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=11, column=0, sticky="ew", pady=4)
+        ttk.Button(panel, text="Restore John's", command=self.restore_preset).grid(row=11, column=1, sticky="ew", pady=4)
+        ttk.Label(panel, text="Saved presets reload when SCRIB3 opens.\nFirmware startup/reset still uses the M5 position.",
+                  style="Muted.TLabel", wraplength=320).grid(row=12, columnspan=2, sticky="w", pady=(4, 0))
 
     def field(self, panel: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
-        ttk.Label(panel, text=label).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=3)
+        widget = ttk.Label(panel, text=label.format(unit=self.unit))
+        widget.grid(row=row, column=0, sticky="w", padx=(0, 10), pady=3)
+        if "{unit}" in label:
+            self.unit_labels.append((widget, label))
         ttk.Entry(panel, textvariable=variable, width=17).grid(row=row, column=1, sticky="ew")
+
+    def dimension_fields(self):
+        return {"paper_width_mm": self.paper_width, "paper_height_mm": self.paper_height,
+                "margin_mm": self.margin, "machine_width_mm": self.machine_width,
+                "machine_height_mm": self.machine_height, "feed_mm_min": self.feed,
+                "jog_step_mm": self.controls.step, "jog_feed_mm_min": self.controls.rate}
+
+    def update_unit_labels(self):
+        for label, template in self.unit_labels:
+            label.configure(text=template.format(unit=self.unit))
+        self.controls.update_units()
+
+    def change_units(self, _event=None):
+        requested = next((code for code, name in UNIT_NAMES.items() if name == self.unit_choice.get()), None)
+        if requested == self.unit:
+            return
+        try:
+            if requested is None:
+                raise ValueError("Select inches or millimeters.")
+            converted = [(variable, display(to_mm(variable.get(), self.unit), requested)
+                          if variable.get().strip() else "") for variable in self.dimension_fields().values()]
+        except ValueError as exc:
+            self.unit_choice.set(UNIT_NAMES[self.unit])
+            messagebox.showerror("Change units", str(exc), parent=self.root)
+            return
+        self.unit = requested
+        for variable, value in converted:
+            variable.set(value)
+        self.update_unit_labels()
+        self.apply_layout()
+        self.status.set(f"Units: {UNIT_NAMES[self.unit]}. Save preset to remember this choice.")
+
+    def save_preset(self):
+        try:
+            values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
+                      for name, variable in self.dimension_fields().items()}
+            values.update(schema_version=1, name=self.preset_name.get(), units=self.unit,
+                          firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
+                          settle=float(self.settle.get()))
+            presets.save(self.preset_file, values)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Save preset", str(exc), parent=self.root)
+        else:
+            self.status.set(f"Saved {values['name']}. These settings will reload next time.")
+
+    def restore_preset(self):
+        data = presets.builtin()
+        self.unit = data["units"]
+        self.unit_choice.set(UNIT_NAMES[self.unit])
+        for name, variable in self.dimension_fields().items():
+            variable.set("" if data[name] is None else display(data[name], self.unit))
+        for key in ("name", "firmware", "pen_up", "pen_down", "settle"):
+            variable = self.preset_name if key == "name" else getattr(self, key)
+            variable.set(str(data[key]))
+        self.update_unit_labels()
+        self.refresh()
+        self.status.set("Restored John's pen preset. Save preset to keep it for the next launch.")
 
     def refresh(self) -> None:
         try:
-            dimensions = tuple(float(field.get()) for field in (self.paper_width, self.paper_height, self.margin))
+            dimensions = tuple(to_mm(field.get(), self.unit) for field in (self.paper_width, self.paper_height, self.margin))
         except ValueError as exc:
             raise ValueError("Enter numeric paper dimensions and margin on the Drawing tab.") from exc
         sheet = Sheet(*dimensions)
@@ -201,8 +286,8 @@ class Studio:
         self.drawing = order_strokes(fitted) if self.optimize.get() else fitted
         drawn, travel = path_lengths(self.drawing)
         self.stats.set(
-            f"{self.sheet.width:g} × {self.sheet.height:g} mm  ·  {len(self.drawing):,} strokes"
-            f"  ·  {drawn:,.0f} mm drawn  ·  {travel:,.0f} mm pen-up"
+            f"{from_mm(self.sheet.width, self.unit):.3f} × {from_mm(self.sheet.height, self.unit):.3f} {self.unit}  ·  {len(self.drawing):,} strokes"
+            f"  ·  {from_mm(drawn, self.unit):,.2f} {self.unit} drawn  ·  {from_mm(travel, self.unit):,.2f} {self.unit} pen-up"
         )
         self.paint()
 
@@ -336,11 +421,11 @@ class Studio:
                     raise ValueError("Read GRBL on the selected port to check the uploaded servo profile.")
                 servo = ServoSettings.from_report(self.controller_report[2])
             machine = Machine(
-                float(self.machine_width.get()), float(self.machine_height.get()),
-                float(self.feed.get()), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
+                to_mm(self.machine_width.get(), self.unit), to_mm(self.machine_height.get(), self.unit),
+                to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
                 servo=servo,
             )
-            program = generate_gcode(self.drawing, self.sheet, machine)
+            program = generate_gcode(self.drawing, self.sheet, machine, units=self.unit)
         except ValueError as exc:
             error = str(exc)
             if "could not convert string to float" in error:

@@ -10,6 +10,7 @@ from .controller import Controller, SETUP_FIELDS, jog_command, setting_changes
 from .discovery import detect
 from .firmware import SERVO_PROFILE
 from .grbl import ports
+from .units import display, from_mm, to_mm, setting_display, setting_native, setting_label
 
 
 class ControlPanel(ttk.Frame):
@@ -23,8 +24,8 @@ class ControlPanel(ttk.Frame):
         self.messages = Queue()
         self.show_report = False
         self.closing = False
-        self.step = tk.StringVar(value="1")
-        self.rate = tk.StringVar(value="300")
+        self.step = tk.StringVar(value=display(studio.initial_preset["jog_step_mm"], studio.unit))
+        self.rate = tk.StringVar(value=display(studio.initial_preset["jog_feed_mm_min"], studio.unit))
         self.connection_text = tk.StringVar(value="Select a port, or use Auto detect.")
         self.state_text = tk.StringVar(value="Disconnected")
         self.position_text = tk.StringVar(value="Work XY: —\nMachine XY: —")
@@ -59,9 +60,12 @@ class ControlPanel(ttk.Frame):
         ttk.Label(self, textvariable=self.pin_text, style="Muted.TLabel").grid(row=3, columnspan=3, sticky="w")
         jog = ttk.Frame(self)
         jog.grid(row=4, columnspan=3, sticky="ew", pady=2)
-        ttk.Label(jog, text="Step (mm)").grid(row=0, column=0, sticky="w")
-        ttk.Combobox(jog, textvariable=self.step, values=(.1, 1, 5, 10), width=7).grid(row=0, column=1, padx=(4, 10))
-        ttk.Label(jog, text="Feed (mm/min)").grid(row=0, column=2)
+        self.step_label = ttk.Label(jog)
+        self.step_label.grid(row=0, column=0, sticky="w")
+        self.step_picker = ttk.Combobox(jog, textvariable=self.step, width=7)
+        self.step_picker.grid(row=0, column=1, padx=(4, 10))
+        self.rate_label = ttk.Label(jog)
+        self.rate_label.grid(row=0, column=2)
         ttk.Entry(jog, textvariable=self.rate, width=7).grid(row=0, column=3, padx=(4, 0))
         arrows = ttk.Frame(self)
         arrows.grid(row=5, columnspan=3)
@@ -73,18 +77,34 @@ class ControlPanel(ttk.Frame):
         self.buttons["Cancel jog"] = ttk.Button(arrows, text="Cancel jog", padding=(6, 2), command=self.cancel_jog)
         self.buttons["Cancel jog"].grid(row=1, column=1, padx=2)
         for row, entries in enumerate((
-            (("Home", lambda: self.perform("home")), ("Set paper XY zero", lambda: self.perform("zero")), ("Setup…", self.setup)),
-            (("Pen up", lambda: self.pen(True)), ("Pen down", lambda: self.pen(False)), ("Unlock alarm", lambda: self.perform("unlock"))),
-            (("Read GRBL", self.read_report), ("Connection log", self.show_log), ("Disconnect", self.disconnect)),
-            (("Reset / abort", self.reset),),
+            (("Set manual home", lambda: self.perform("set_home")), ("Go to manual home", self.go_home), ("Home", lambda: self.perform("home"))),
+            (("Pen up", lambda: self.pen(True)), ("Pen down", lambda: self.pen(False)), ("Set paper XY zero", lambda: self.perform("zero"))),
+            (("Setup…", self.setup), ("Read GRBL", self.read_report), ("Connection log", self.show_log)),
+            (("Unlock alarm", lambda: self.perform("unlock")), ("Disconnect", self.disconnect), ("Reset / abort", self.reset)),
         ), start=6):
             for column, (name, command) in enumerate(entries):
-                label = {"Set paper XY zero": "Paper XY zero", "Connection log": "Log", "Setup…": "Setup..."}.get(name, name)
+                label = {"Set manual home": "Set home", "Go to manual home": "Go home", "Home": "Switch home",
+                         "Set paper XY zero": "Paper XY zero", "Connection log": "Log", "Setup…": "Setup..."}.get(name, name)
                 button = ttk.Button(self, text=label, command=command, padding=(5, 2))
-                button.grid(row=row, column=column, sticky="ew", padx=(0, 3), pady=1,
-                            columnspan=3 if name == "Reset / abort" else 1)
+                button.grid(row=row, column=column, sticky="ew", padx=(0, 3), pady=1)
                 self.buttons[name] = button
+        self.update_units()
         studio.root.after(80, self.poll)
+
+    def update_units(self):
+        unit = self.studio.unit
+        self.step_label.configure(text=f"Step ({unit})")
+        self.rate_label.configure(text=f"Feed ({unit}/min)")
+        self.step_picker.configure(values=(.001, .01, .1, .25, 1) if unit == "in" else (.1, 1, 5, 10))
+
+    def go_home(self):
+        try:
+            feed = to_mm(self.rate.get(), self.studio.unit)
+        except ValueError as exc:
+            self.error(str(exc))
+            return
+        self.perform("go_home", feed=feed, command=self.studio.pen_up.get(),
+                     servo=self.studio.firmware.get() == SERVO_PROFILE, settle=self.studio.settle.get())
 
     def error(self, message):
         self.studio.status.set(message)
@@ -147,14 +167,15 @@ class ControlPanel(ttk.Frame):
 
     def jog(self, axis, sign):
         try:
-            distance = float(self.step.get())
+            distance = to_mm(self.step.get(), self.studio.unit)
+            rate = to_mm(self.rate.get(), self.studio.unit)
             if distance <= 0:
                 raise ValueError("Enter a positive step size.")
-            jog_command(axis, distance * sign, self.rate.get())
+            jog_command(axis, distance * sign, rate)
         except ValueError as exc:
             self.error(str(exc))
             return
-        self.perform("jog", axis=axis, distance=distance * sign, feed=self.rate.get())
+        self.perform("jog", axis=axis, distance=distance * sign, feed=rate)
 
     def pen(self, up):
         self.perform("pen", command=(self.studio.pen_up if up else self.studio.pen_down).get(),
@@ -188,8 +209,9 @@ class ControlPanel(ttk.Frame):
             return
         session = self.session
         current = session.snapshot()["settings"]
+        unit = self.studio.unit
         dialog = tk.Toplevel(self.studio.root)
-        dialog.title("Plotter setup — controller settings")
+        dialog.title(f"Plotter setup — {unit}")
         dialog.transient(self.studio.root)
         dialog.geometry("560x490")
         panel = ttk.Frame(dialog, padding=12)
@@ -208,15 +230,15 @@ class ControlPanel(ttk.Frame):
             for number, category, label, *_ in SETUP_FIELDS:
                 if category != group or number not in current:
                     continue
-                variable = tk.StringVar(value=f"{current[number]:g}")
+                variable = tk.StringVar(value=f"{setting_display(number, current[number], unit):.10g}")
                 variables[number] = variable
-                ttk.Label(page, text=f"${number}  {label}").grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
+                ttk.Label(page, text=f"${number}  {setting_label(label, unit)}").grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
                 ttk.Entry(page, textvariable=variable, width=12).grid(row=row, column=1, sticky="ew")
                 row += 1
             if group == "Homing":
                 help_text = "Enable homing only after installing and checking the switches.\nThe supplied firmware homes X and Y together."
             elif group == "Motion":
-                help_text = "Calibration: new steps/mm = current steps/mm ×\ncommanded distance ÷ measured distance."
+                help_text = f"Calibration: new steps/{unit} = current steps/{unit} ×\ncommanded distance ÷ measured distance."
             else:
                 help_text = "The supplied servo firmware needs laser mode $32=0.\nSet and test lift commands on the Machine and Control tabs."
             ttk.Label(page, text=help_text, wraplength=480, style="Muted.TLabel").grid(row=row, columnspan=2, sticky="w", pady=(10, 0))
@@ -228,7 +250,7 @@ class ControlPanel(ttk.Frame):
                 actual = session.snapshot()["settings"]
                 if actual != current:
                     raise ValueError("Controller settings changed. Reopen Setup to use the current values.")
-                changes = setting_changes({n: v.get() for n, v in variables.items()}, current)
+                changes = setting_changes({n: setting_native(n, v.get(), unit) for n, v in variables.items()}, current)
                 if changes:
                     session.request("settings", values=changes)
             except ValueError as exc:
@@ -243,8 +265,8 @@ class ControlPanel(ttk.Frame):
         if not {130, 131}.issubset(values):
             self.error("Connect and read GRBL before copying controller travel.")
             return
-        self.studio.machine_width.set(f"{values[130]:g}")
-        self.studio.machine_height.set(f"{values[131]:g}")
+        self.studio.machine_width.set(display(values[130], self.studio.unit))
+        self.studio.machine_height.set(display(values[131], self.studio.unit))
         self.studio.status.set("Copied controller X/Y travel. Verify the usable paper area on your plotter.")
 
     def poll(self):
@@ -286,7 +308,9 @@ class ControlPanel(ttk.Frame):
                     self.studio.status.set(value)
                     self.show_report = False
                 elif kind == "done":
-                    self.studio.status.set("Command acknowledged. Live status shows motion completion.")
+                    status_text = {"set_home": "Manual home set here; G54 XY is zero. No switch homing was performed.",
+                                   "go_home": "Returning to manual home with the pen raised. Wait for Idle."}
+                    self.studio.status.set(status_text.get(value, "Command acknowledged. Live status shows motion completion."))
                     if value == "refresh" and self.show_report:
                         self.show_report = False
                         dialog, controls = self.studio.text_dialog("GRBL connection report", snap["report"])
@@ -299,9 +323,10 @@ class ControlPanel(ttk.Frame):
         state = snap.get("state", "Disconnected")
         self.state_text.set(state + (" · waiting for status" if active and not fresh else ""))
         def xy(position):
-            return f"X {position[0]:9.3f}   Y {position[1]:9.3f}" if position and fresh else "—"
-        self.position_text.set(f"Work mm: {xy(snap.get('work'))}\nMach mm: {xy(snap.get('machine'))}")
-        self.pin_text.set("Active inputs: " + (snap.get("pins") or ("none" if fresh else "—")))
+            return f"X {from_mm(position[0], self.studio.unit):9.4f}   Y {from_mm(position[1], self.studio.unit):9.4f}" if position and fresh else "—"
+        self.position_text.set(f"Work {self.studio.unit}: {xy(snap.get('work'))}\nMach {self.studio.unit}: {xy(snap.get('machine'))}")
+        self.pin_text.set("Home: " + ("set" if snap.get("manual_home") is not None else "not set")
+                          + " | Inputs: " + (snap.get("pins") or ("none" if fresh else "—")))
         for name, button in self.buttons.items():
             if name in {"Find ports", "Connect"}:
                 enabled = not active and not self.scanning
@@ -315,7 +340,13 @@ class ControlPanel(ttk.Frame):
                 enabled = active and (state == "Jog" or snap.get("busy", False))
             elif name == "Unlock alarm":
                 enabled = ready and state == "Alarm"
-            elif name in {"Home", "Setup…", "Read GRBL"}:
+            elif name == "Go to manual home":
+                enabled = ready and state == "Idle" and snap.get("manual_home") is not None
+            elif name == "Set manual home":
+                enabled = ready and state == "Idle" and snap.get("machine") is not None
+            elif name == "Home":
+                enabled = ready and state in {"Idle", "Alarm"} and snap.get("settings", {}).get(22) == 1
+            elif name in {"Setup…", "Read GRBL"}:
                 enabled = ready and state in {"Idle", "Alarm"}
             else:
                 enabled = ready and state == "Idle"

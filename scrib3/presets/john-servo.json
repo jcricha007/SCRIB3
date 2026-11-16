@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "John's servo plotter",
+  "units": "in",
+  "firmware": "Uploaded RC-servo",
+  "pen_up": "M3 S180",
+  "pen_down": "M3 S70",
+  "settle": 0.0,
+  "paper_width_mm": 148.0,
+  "paper_height_mm": 105.0,
+  "margin_mm": 7.0,
+  "machine_width_mm": null,
+  "machine_height_mm": null,
+  "feed_mm_min": null,
+  "jog_step_mm": 0.254,
+  "jog_feed_mm_min": 101.6
+}
