@@ -147,7 +147,7 @@ class PaperGuideWindow:
         ttk.Label(footer, textvariable=self.instructions, wraplength=570).pack(anchor='w', pady=8)
         ttk.Button(footer, text="Use John's Letter setup", command=self.use_john).pack(fill='x', pady=(0, 5))
         ttk.Button(footer, text='Apply and save paper setup', command=self.apply).pack(fill='x')
-        self.canvas = tk.Canvas(panel, background='#e4e9e1', highlightthickness=0, height=300)
+        self.canvas = tk.Canvas(panel, background='#e7ecf3', highlightthickness=0, height=300)
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<Configure>', lambda _: self.paint())
 
@@ -169,19 +169,19 @@ class PaperGuideWindow:
         scale = min((cw-130)/width, (ch-110)/height)
         left, bottom = (cw-width*scale)/2, ch-48
         right, top = left+width*scale, bottom-height*scale
-        canvas.create_rectangle(left, top, right, bottom, fill='#fffef8', outline='#555e54')
+        canvas.create_rectangle(left, top, right, bottom, fill='#ffffff', outline='#617085')
         margin = 12.7*scale
-        canvas.create_rectangle(left+margin, top+margin, right-margin, bottom-margin, dash=(4, 4), outline='#598676')
-        canvas.create_text((left+right)/2, bottom+31, text=f'{"Y" if john else "X"} width: {width/25.4:.3g} in', fill='#262a25')
-        canvas.create_text(left-28, (top+bottom)/2, text=f'{"X" if john else "Y"} height: {height/25.4:.3g} in', angle=90, fill='#262a25')
-        canvas.create_line(left, bottom+12, right, bottom+12, arrow='last', fill='#245849', width=2)
-        canvas.create_text(right+6, bottom+12, text='+Y' if john else '+X', anchor='w', fill='#262a25')
-        canvas.create_line(right+20, top if john else bottom, right+20, bottom if john else top, arrow='last', fill='#245849', width=2)
-        canvas.create_text(right+20, top-12, text='-X' if john else '+Y', fill='#262a25')
+        canvas.create_rectangle(left+margin, top+margin, right-margin, bottom-margin, dash=(4, 4), outline='#2563eb')
+        canvas.create_text((left+right)/2, bottom+31, text=f'{"Y" if john else "X"} width: {width/25.4:.3g} in', fill='#172033')
+        canvas.create_text(left-28, (top+bottom)/2, text=f'{"X" if john else "Y"} height: {height/25.4:.3g} in', angle=90, fill='#172033')
+        canvas.create_line(left, bottom+12, right, bottom+12, arrow='last', fill='#2563eb', width=2)
+        canvas.create_text(right+6, bottom+12, text='+Y' if john else '+X', anchor='w', fill='#172033')
+        canvas.create_line(right+20, top if john else bottom, right+20, bottom if john else top, arrow='last', fill='#2563eb', width=2)
+        canvas.create_text(right+20, top-12, text='-X' if john else '+Y', fill='#172033')
         origin_y = top if john else bottom
-        canvas.create_oval(left-5, origin_y-5, left+5, origin_y+5, fill='#245849', outline='')
-        canvas.create_text(left, top-28, text=f'START: {origin_corner(mount)} corner (0, 0), pen up', anchor='w', fill='#262a25')
-        canvas.create_text((left+right)/2, (top+bottom)/2, text='Top view\n0.5-inch margin', fill='#555e54')
+        canvas.create_oval(left-5, origin_y-5, left+5, origin_y+5, fill='#2563eb', outline='')
+        canvas.create_text(left, top-28, text=f'START: {origin_corner(mount)} corner (0, 0), pen up', anchor='w', fill='#172033')
+        canvas.create_text((left+right)/2, (top+bottom)/2, text='Top view\n0.5-inch margin', fill='#617085')
         try:
             x_travel, y_travel = required_travel(width, height, mount)
             fits = to_mm(self.studio.machine_width.get(), self.studio.unit) >= x_travel-.001 and to_mm(self.studio.machine_height.get(), self.studio.unit) >= y_travel-.001

@@ -12,6 +12,7 @@ from .firmware import SERVO_PROFILE
 from .grbl import ports
 from .units import display, from_mm, to_mm, setting_display, setting_native, setting_label
 from .calibration_ui import CalibrationWindow
+from .theme import BACKGROUND, MUTED
 
 
 class ControlPanel(ttk.Frame):
@@ -54,7 +55,7 @@ class ControlPanel(ttk.Frame):
             actions.columnconfigure(column, weight=1)
             self.buttons[name] = button
         tk.Label(connection, textvariable=self.connection_text, wraplength=330, height=2,
-                 justify="left", anchor="w", background="#f1f2ec", foreground="#555e54").grid(row=2, columnspan=2, sticky="w", pady=(4, 0))
+                 justify="left", anchor="w", background=BACKGROUND, foreground=MUTED).grid(row=2, columnspan=2, sticky="w", pady=(4, 0))
 
         ttk.Label(self, textvariable=self.state_text, style="Title.TLabel").grid(row=1, columnspan=3, sticky="w", pady=(4, 0))
         ttk.Label(self, textvariable=self.position_text, font="TkFixedFont").grid(row=2, columnspan=3, sticky="w")

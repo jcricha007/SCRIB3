@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, font, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
 from . import design, presets
@@ -17,25 +17,19 @@ from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .demo import sample
-from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths
+from .drawing import Drawing, Sheet, fit_to_sheet
 from .gcode import Machine
 from .firmware import SERVO_PROFILE, ServoSettings
 from .toolpath import QualityOptions, prepare_toolpath
-
-INK = "#262a25"
-MUTED = "#555e54"
-BACKGROUND = "#f1f2ec"
-DESK = "#e4e9e1"
-PAPER = "#fffef8"
-GREEN = "#245849"
-TEAL = "#598676"
+from . import theme
+from .theme import INK, MUTED, BACKGROUND, DESK, PAPER, ACCENT, TRAVEL
 
 
 class Studio:
     def __init__(self, root: tk.Tk, preset_file: Path | None = None) -> None:
         self.root = root
         root.title("SCRIB3 | Pen Plotter Studio")
-        root.geometry("1120x740")
+        root.geometry("1280x820")
         root.minsize(800, 650)
         root.configure(background=BACKGROUND)
         self.configure_theme()
@@ -67,9 +61,14 @@ class Studio:
         self.quality_mode = tk.StringVar(value=data['quality_mode'])
         self.remove_duplicates = tk.BooleanVar(value=data['remove_duplicates'])
         self.show_travel = tk.BooleanVar(value=False)
+        self.show_original = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
         self.status = tk.StringVar(value="Sample loaded. Import SVG, DXF, or drawing JSON, or create a pattern.")
         self.stats = tk.StringVar()
+        self.metric_points = tk.StringVar()
+        self.metric_strokes = tk.StringVar()
+        self.metric_travel = tk.StringVar()
+        self.quality_summary = tk.StringVar()
         self.model = tk.StringVar(value=data["ollama_model"])
         self.machine_width = tk.StringVar(value="" if data["machine_width_mm"] is None else display(data["machine_width_mm"], self.unit))
         self.machine_height = tk.StringVar(value="" if data["machine_height_mm"] is None else display(data["machine_height_mm"], self.unit))
@@ -85,6 +84,8 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
+        root.bind('<Control-o>', lambda _event: self.import_drawing())
+        root.bind('<Control-r>', lambda _event: self.review())
         self.paper_mount.trace_add('write', self.mount_changed)
         root.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.refresh()
@@ -92,33 +93,16 @@ class Studio:
             self.status.set(load_warning)
 
     def configure_theme(self) -> None:
-        families = set(font.families(self.root))
-        ui = next((name for name in ("Inter", "Segoe UI", "DejaVu Sans") if name in families), "Arial")
-        display = next((name for name in ("Instrument Serif", "Georgia", "DejaVu Serif") if name in families), ui)
-        font.nametofont("TkDefaultFont").configure(family=ui, size=10)
-        font.nametofont("TkTextFont").configure(family=ui, size=10)
-        self.ui_font = ui
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure(".", background=BACKGROUND, foreground=INK, font=(ui, 10))
-        style.configure("TButton", padding=(9, 6))
-        style.configure("Primary.TButton", background=GREEN, foreground="white", bordercolor=GREEN)
-        style.map("Primary.TButton", background=[("active", "#326c5c")])
-        style.configure("Brand.TLabel", font=(display, 33), foreground=GREEN)
-        style.configure("Title.TLabel", font=(ui, 13, "bold"))
-        style.configure("Muted.TLabel", foreground=MUTED)
-        style.configure("TNotebook", padding=0)
-        style.configure("TNotebook.Tab", padding=(13, 7))
-        style.configure("TEntry", padding=4)
+        self.ui_font = theme.configure(self.root)
 
     def build_layout(self) -> None:
-        frame = ttk.Frame(self.root, padding=(20, 12, 20, 10))
+        frame = ttk.Frame(self.root, padding=(16, 10, 16, 8))
         frame.pack(fill="both", expand=True)
         header = ttk.Frame(frame)
         header.pack(fill="x", pady=(0, 10))
         ttk.Label(header, text="SCRIB3", style="Brand.TLabel").pack(side="left")
-        ttk.Label(header, text="Pen Plotter Studio", style="Muted.TLabel").pack(
-            side="left", padx=(12, 0), pady=(11, 0)
+        ttk.Label(header, text="DRAW / REFINE / PLOT", style="Muted.TLabel").pack(
+            side="left", padx=(12, 0), pady=(4, 0)
         )
         ttk.Button(header, text="Review G-code", style="Primary.TButton", command=self.review).pack(
             side="right", pady=5
@@ -132,8 +116,12 @@ class Studio:
         self.unit_picker.pack(side="left")
         self.unit_picker.bind("<<ComboboxSelected>>", self.change_units)
 
-        tk.Label(frame, textvariable=self.status, background=BACKGROUND, foreground=MUTED,
-                 wraplength=730, height=2, justify="left", anchor="w").pack(side="bottom", anchor="w")
+        status_bar = ttk.Frame(frame)
+        status_bar.pack(side='bottom', fill='x')
+        self.status_label = tk.Label(status_bar, textvariable=self.status, background=BACKGROUND, foreground=MUTED,
+                                    wraplength=730, height=2, justify='left', anchor='w')
+        self.status_label.pack(side='left', fill='x', expand=True)
+        status_bar.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(200, event.width-140)))
         ttk.Separator(frame).pack(side="bottom", fill="x", pady=(8, 4))
         body = ttk.Frame(frame)
         body.pack(fill="both", expand=True)
@@ -146,12 +134,13 @@ class Studio:
         buttons = ttk.Frame(toolbar)
         buttons.pack(fill="x")
         ttk.Button(buttons, text="Import drawing", command=self.import_drawing).pack(side="left")
-        ttk.Button(buttons, text="Load sample", command=self.load_sample).pack(side="left", padx=6)
+        ttk.Button(buttons, text="Sample", command=self.load_sample).pack(side="left", padx=6)
         self.quality_button = ttk.Button(buttons, text='Plot quality', command=lambda: QualityWindow(self))
         self.quality_button.pack(side='left')
-        ttk.Checkbutton(
-            toolbar, text="Show pen-up travel", variable=self.show_travel, command=self.paint,
-        ).pack(anchor="w", pady=(5, 0))
+        layers = ttk.Frame(toolbar)
+        layers.pack(fill='x', pady=(7, 0))
+        ttk.Checkbutton(layers, text='Pen-up travel', variable=self.show_travel, command=self.paint).pack(side='left')
+        ttk.Checkbutton(layers, text='Source overlay', variable=self.show_original, command=self.paint).pack(side='left', padx=8)
         self.canvas = tk.Canvas(workspace, background=DESK, borderwidth=0, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self.paint())
@@ -160,6 +149,20 @@ class Studio:
         )
         self.stats_label = ttk.Label(workspace, textvariable=self.stats, style="Muted.TLabel", wraplength=320)
         self.stats_label.pack(anchor="w")
+        metrics = ttk.Frame(workspace)
+        metrics.pack(fill='x', pady=(8, 0))
+        self.metric_cards = []
+        for column, (label, variable) in enumerate((('PATH POINTS', self.metric_points),
+                                                  ('STROKES', self.metric_strokes),
+                                                  ('PEN-UP TRAVEL', self.metric_travel))):
+            metrics.columnconfigure(column, weight=1, uniform='metric')
+            card = ttk.Frame(metrics, padding=(10, 7), style='Metric.TFrame')
+            card.grid(row=0, column=column, sticky='nsew', padx=(0, 6 if column < 2 else 0))
+            ttk.Label(card, text=label, style='Metric.TLabel').pack(anchor='w')
+            ttk.Label(card, textvariable=variable, style='MetricValue.TLabel').pack(anchor='w')
+            self.metric_cards.append(card)
+        self.quality_label = ttk.Label(workspace, textvariable=self.quality_summary, style='Muted.TLabel', wraplength=320)
+        self.quality_label.pack(anchor='w', pady=(6, 0))
 
         tabs = ttk.Notebook(body)
         tabs.grid(row=0, column=1, sticky="ns")
@@ -174,6 +177,7 @@ class Studio:
         self.controls = ControlPanel(tabs, self)
         tabs.add(self.controls, text="Control")
         self.tabs = tabs
+        ttk.Label(status_bar, textvariable=self.controls.state_text, style='Badge.TLabel').pack(side='right', padx=(10, 0))
 
     def build_drawing_tab(self, panel: ttk.Frame) -> None:
         title = ttk.Frame(panel)
@@ -183,7 +187,7 @@ class Studio:
         self.field(panel, 1, "Paper width ({unit})", self.paper_width)
         self.field(panel, 2, "Paper height ({unit})", self.paper_height)
         self.field(panel, 3, "Margin ({unit})", self.margin)
-        ttk.Checkbutton(panel, text="Order strokes by nearest endpoint", variable=self.optimize).grid(
+        ttk.Checkbutton(panel, text="Reduce pen-up travel", variable=self.optimize, command=self.apply_layout).grid(
             row=4, columnspan=2, sticky="w", pady=4
         )
         ttk.Button(panel, text="Fit to paper", command=self.apply_layout).grid(row=5, columnspan=2, sticky="ew")
@@ -329,13 +333,25 @@ class Studio:
         except ValueError as exc:
             raise ValueError("Enter numeric paper dimensions and margin on the Design tab.") from exc
         sheet = Sheet(*dimensions)
-        fitted = fit_to_sheet(self.source, sheet)
         start = (0, sheet.height) if self.paper_mount.get() == 'top_left_y' else (0, 0)
-        drawing, report = prepare_toolpath(fitted, QualityOptions(
-            self.quality_mode.get(), self.remove_duplicates.get(), self.optimize.get()), start)
+        options = QualityOptions(self.quality_mode.get(), self.remove_duplicates.get(), self.optimize.get())
+        key = (self.source, sheet, options, start)
+        cached = getattr(self, '_toolpath_cache', None)
+        if cached is not None and cached[0] == key:
+            fitted, drawing, report = cached[1:]
+        else:
+            fitted = fit_to_sheet(self.source, sheet)
+            drawing, report = prepare_toolpath(fitted, options, start)
+            self._toolpath_cache = (key, fitted, drawing, report)
         self.sheet = sheet
-        self.drawing, self.quality_report = drawing, report
+        self.drawing, self.quality_report, self.fitted = drawing, report, fitted
         drawn, travel = report.after.drawn_mm, report.after.travel_mm
+        self.metric_points.set(f'{report.after.points:,}')
+        self.metric_strokes.set(f'{report.after.strokes:,}')
+        self.metric_travel.set(f'{from_mm(travel, self.unit):,.1f} {self.unit}')
+        reduction = 100*(1-report.after.points/report.before.points)
+        self.quality_summary.set(f'{self.quality_mode.get()}  |  {report.before.points:,} to {report.after.points:,} points '
+                                 f'({reduction:.0f}% fewer)  |  {report.duplicates_removed} repeated strokes removed')
         self.stats.set(
             f"{from_mm(self.sheet.width, self.unit):.3f} × {from_mm(self.sheet.height, self.unit):.3f} {self.unit}  ·  {len(self.drawing):,} strokes"
             f"  ·  {from_mm(drawn, self.unit):,.2f} {self.unit} drawn  ·  {from_mm(travel, self.unit):,.2f} {self.unit} pen-up"
@@ -348,32 +364,37 @@ class Studio:
         if min(width, height) < 76:
             return
         self.stats_label.configure(wraplength=max(150, width))
+        self.quality_label.configure(wraplength=max(150, width))
         canvas.delete("all")
-        for x in range(12, width, 16):
-            for y in range(12, height, 16):
-                canvas.create_oval(x, y, x + 1, y + 1, fill="#b7c4b8", outline="")
+        for x in range(12, width, 24):
+            for y in range(12, height, 24):
+                canvas.create_oval(x, y, x + 1, y + 1, fill='#3b4759', outline='')
         sheet = self.sheet
         scale = min((width - 64) / sheet.width, (height - 64) / sheet.height)
         left = (width - sheet.width * scale) / 2
         top = (height - sheet.height * scale) / 2
         right, bottom = width - left, height - top
-        canvas.create_rectangle(left + 4, top + 5, right + 4, bottom + 5, fill="#c4cec2", outline="")
-        canvas.create_rectangle(left, top, right, bottom, fill=PAPER, outline="#a0aa9d")
+        canvas.create_rectangle(left + 4, top + 5, right + 4, bottom + 5, fill='#111827', outline='')
+        canvas.create_rectangle(left, top, right, bottom, fill=PAPER, outline='#64748b')
         margin = sheet.margin * scale
         if margin:
             canvas.create_rectangle(left + margin, top + margin, right - margin, bottom - margin,
-                                    outline="#cbd0c2", dash=(3, 4))
+                                    outline='#cbd5e1', dash=(3, 4))
+        if self.show_original.get():
+            for stroke in self.fitted:
+                coords = tuple(coord for x, y in stroke for coord in (left+x*scale, bottom-y*scale))
+                canvas.create_line(*coords, fill='#b6c9f4', width=3, tags='source')
         origin_y = top if self.paper_mount.get() == 'top_left_y' else bottom
         previous = (left, origin_y)
         for stroke in self.drawing:
             points = tuple(coord for x, y in stroke for coord in (left + x * scale, bottom - y * scale))
             if self.show_travel.get():
-                canvas.create_line(*previous, *points[:2], fill=TEAL, dash=(3, 4))
+                canvas.create_line(*previous, *points[:2], fill=TRAVEL, dash=(3, 4))
             canvas.create_line(*points, fill=INK, width=1.4, capstyle="round", joinstyle="round")
             previous = points[-2:]
-        canvas.create_oval(left - 3, origin_y - 3, left + 3, origin_y + 3, fill=GREEN, outline="")
+        canvas.create_oval(left - 3, origin_y - 3, left + 3, origin_y + 3, fill=ACCENT, outline="")
         canvas.create_text(left + 8, origin_y - 8 if origin_y == top else origin_y + 8,
-                           text="0, 0", anchor="sw" if origin_y == top else "nw", fill=MUTED, font=(self.ui_font, 9))
+                           text="0, 0", anchor="sw" if origin_y == top else "nw", fill='#cbd5e1', font=(self.ui_font, 9))
 
     def mount_changed(self, *_):
         self.controls.update_axes()

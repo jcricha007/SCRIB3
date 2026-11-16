@@ -110,3 +110,11 @@ On macOS, run the checks with the environment created by the launcher.
 
 - [GRBL serial interface](https://github.com/gnea/grbl/blob/master/doc/markdown/interface.md)
 - [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs)
+## Output-quality update
+
+SVG curves now use adaptive flattening, and **Plot quality** offers Original,
+Fine and Balanced cleanup using the open-source `rdp` library. Reinstall
+`requirements.txt` when updating. Quality settings persist in machine presets.
+The refreshed workspace includes point and travel metrics and a source overlay.
+See [output quality](docs/output-quality.md) for the research, tolerances and
+the [comparison drawing](examples/quality-check.svg).

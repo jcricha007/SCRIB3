@@ -1,4 +1,4 @@
-"""Per-preset seam treatment for closed pen paths."""
+"""Per-preset path cleanup and closed-loop seam treatment."""
 import tkinter as tk
 from tkinter import ttk
 
@@ -12,8 +12,8 @@ class QualityWindow:
         self.unit = studio.unit
         self.window = tk.Toplevel(studio.root)
         self.window.title('SCRIB3 | Plot quality')
-        self.window.geometry('540x560')
-        self.window.minsize(540, 560)
+        self.window.geometry('560x610')
+        self.window.minsize(560, 610)
         panel = ttk.Frame(self.window, padding=16)
         panel.pack(fill='both', expand=True)
         ttk.Label(panel, text='Toolpath cleanup', style='Title.TLabel').pack(anchor='w')
@@ -43,8 +43,12 @@ class QualityWindow:
                   'Pen settle remains adjustable on Machine; sketch runs use at least 0.5 seconds.',
                   wraplength=480, style='Muted.TLabel').pack(anchor='w', pady=12)
         self.status = tk.StringVar()
+        report = studio.quality_report
+        self.summary = tk.StringVar(value=f'Current preview: {report.before.points:,} to {report.after.points:,} points; '
+                                   f'{report.after.strokes:,} strokes. Apply to update the preview.')
+        ttk.Label(panel, textvariable=self.summary, style='Muted.TLabel', wraplength=510).pack(anchor='w', pady=8)
         ttk.Label(panel, textvariable=self.status, wraplength=480).pack(anchor='w')
-        self.apply_button = ttk.Button(panel, text='Apply and save', command=self.apply)
+        self.apply_button = ttk.Button(panel, text='Apply and save', style='Primary.TButton', command=self.apply)
         self.apply_button.pack(side='bottom', anchor='e')
 
     def apply(self):
@@ -69,8 +73,11 @@ class QualityWindow:
             self.status.set(str(exc))
             return
         saved = self.studio.save_preset()
-        self.status.set('Saved. Review G-code again to use this overlap.' if saved else
-                        'Overlap changed; saving failed. Correct preset fields and save again.')
+        report = self.studio.quality_report
+        self.summary.set(f'Current preview: {report.before.points:,} to {report.after.points:,} points; '
+                         f'{report.duplicates_removed} repeated strokes removed.')
+        self.status.set('Saved. Review G-code again to use these settings.' if saved else
+                        'Quality settings changed; saving failed. Correct preset fields and save again.')
 
     def close(self):
         self.window.destroy()

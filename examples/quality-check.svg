@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220mm" height="160mm" viewBox="0 0 220 160">
+  <!-- Geometry-only regression plot. Row 1: circles, ellipse, S curve.
+       Row 2: sharp corners, deliberately open loop, repeated stroke pair. -->
+  <g fill="none" stroke="black" stroke-width="0.2">
+    <rect x="5" y="5" width="210" height="150" />
+    <circle cx="40" cy="45" r="25" />
+    <circle cx="40" cy="45" r="10" />
+    <ellipse cx="110" cy="45" rx="30" ry="8" />
+    <path d="M155 45 C155 0 205 90 205 45" />
+    <path d="M15 130 L40 90 L45 130 L60 105 L65 130" />
+    <path d="M90 100 L135 100 L135 135 L90 135 L90 100.5" />
+    <path d="M155 100 L205 130 M205 130 L155 100" />
+    <path d="M155 135 L205 135 M155 135.5 L205 135.5" />
+  </g>
+</svg>

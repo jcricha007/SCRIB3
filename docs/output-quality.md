@@ -56,3 +56,30 @@ not automatically relocate loop seams or join disconnected strokes.
 Quality preferences are saved with the preset. Schema-5 presets migrate to
 schema 6 without changing custom feed rates or machine settings. Quality and
 duplicate changes invalidate an already-reviewed job before it can run.
+
+## Reviewing the result
+
+The workspace shows output point count, stroke count and pen-up distance,
+plus a before/after point summary. **Source overlay** draws the fitted source
+in pale blue beneath the processed paths; **Pen-up travel** adds amber dashed
+travel lines. Both are display-only. The dark drawing desk, white paper and
+shared blue/gray controls apply throughout the desktop. Ctrl+O imports and
+Ctrl+R opens review; neither shortcut sends a job to the plotter.
+
+Repeated previews reuse geometry until the source, paper, origin or quality
+settings change. A changed quality mode, duplicate option or paper setting
+still requires a new job review.
+
+Import `examples/quality-check.svg` for a repeatable comparison:
+
+1. Check the two circles and narrow ellipse in the top row for flat spots.
+2. Check the top-right S curve and lower-left sharp turns for lost detail.
+3. The lower-middle rectangle has an intentional 0.5 source-unit opening.
+4. The lower-right diagonal is drawn twice unless duplicate removal is enabled.
+   The two nearby horizontal lines must remain separate.
+5. Review a pen-up run, then plot with Original and Balanced modes using the
+   same paper, feed and pen. Inspect seams, corners and line continuity.
+
+The SVG is fitted to the selected paper, so the physical test dimensions scale.
+The included tests verify geometry and controller protocol with simulated serial
+devices; physical plot quality remains a machine acceptance check.

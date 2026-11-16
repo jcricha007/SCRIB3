@@ -1,5 +1,8 @@
 name: Python regression
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   test:
     strategy:
@@ -7,6 +10,8 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      SCRIB3_DESKTOP_TESTS: ${{ matrix.os == 'windows-latest' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
