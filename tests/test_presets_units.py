@@ -39,7 +39,7 @@ class PresetUnitTests(TestCase):
     def test_corrupt_or_motion_bearing_presets_are_rejected(self):
         for changes in ({'pen_up': '$H'}, {'pen_down': 'M3 S70\nG0 X100'},
                         {'units': 'degrees'}, {'feed_mm_min': 0}, {'settle': float('nan')},
-                        {'schema_version': 2}, {'manual_home': [0, 0]}, {'jog_step_mm': 0}):
+                        {'schema_version': 999}, {'manual_home': [0, 0]}, {'jog_step_mm': 0}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 presets.validate(presets.builtin() | changes)
         with TemporaryDirectory() as folder:

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "John's servo plotter",
   "units": "in",
   "firmware": "Uploaded RC-servo",
@@ -13,5 +13,8 @@
   "machine_height_mm": null,
   "feed_mm_min": null,
   "jog_step_mm": 0.254,
-  "jog_feed_mm_min": 101.6
+  "jog_feed_mm_min": 101.6,
+  "x_steps_per_mm": 5.0,
+  "y_steps_per_mm": 5.0,
+  "ollama_model": ""
 }

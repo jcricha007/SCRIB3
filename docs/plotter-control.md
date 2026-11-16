@@ -1,5 +1,7 @@
 # Connect and bring up the plotter
 
+After setup, use the [guided calibration](calibration.md) and [Run sketch](running-sketches.md) guides to verify travel and test a drawing directly in SCRIB3.
+
 The **Control** tab provides a persistent GRBL 1.1 connection, live work/machine XY positions in the selected display units, active input pins, controller setup, homing, step jogging, paper zero, and pen controls. The Arduino stores settings in EEPROM; the **Machine** tab contains the drawing/export and pen-command values.
 
 ## Connection

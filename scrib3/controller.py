@@ -17,6 +17,7 @@ import serial
 
 from .firmware import ServoSettings
 from .gcode import pen_command
+from .jobs import PlotJob
 
 
 # Editable EEPROM fields; all other firmware settings remain untouched.
@@ -150,9 +151,17 @@ class Controller:
         self.settings: dict[int, float] = {}
         self.wco = None
         self.manual_home = None
+        self.reset_required = False
         self.override = None
         self.override_line = ""
         self.operation_kind = ""
+        self.operation_id = 0
+        self.last_result = None
+        self.origin_set = False
+        self.reference = 0
+        self.job = dict(state='idle', completed=0, total=0, error='')
+        self.job_paused = False
+        self.job_controls = Queue()
         self.aborted = False
         self.report = ""
         self.log = deque(maxlen=500)
@@ -188,10 +197,12 @@ class Controller:
             return dict(connected=self.connected, busy=self.busy, fault=self.fault,
                         state=self.state, fresh=monotonic() - self.status_time < 2,
                         work=work, machine=machine, manual_home=self.manual_home, pins=status.pins if status else "",
-                        settings=dict(self.settings), report=self.report, log="\n".join(self.log))
+                        settings=dict(self.settings), reset_required=self.reset_required, last_result=self.last_result,
+                        origin_set=self.origin_set, reference=self.reference, job=dict(self.job),
+                        report=self.report, log="\n".join(self.log))
 
     def request(self, kind: str, **values):
-        if kind not in {"refresh", "jog", "home", "unlock", "zero", "pen", "settings", "set_home", "go_home"}:
+        if kind not in {"refresh", "jog", "home", "unlock", "zero", "pen", "settings", "set_home", "go_home", "calibration_jog", "run_job"}:
             raise ValueError("Unsupported controller operation.")
         with self.lock:
             if not self.connected or self.fault:
@@ -200,13 +211,21 @@ class Controller:
                 raise ValueError("Wait for the current controller operation to finish.")
             self.busy = True
             self.operation_kind = kind
-            self.operations.put_nowait((kind, values))
+            self.operation_id += 1
+            self.operations.put_nowait((self.operation_id, kind, values))
+            return self.operation_id
 
     def cancel_jog(self):
         self.cancel_requested.set()
 
     def reset(self):
         self.reset_requested.set()
+
+    def pause_job(self):
+        self.job_controls.put('pause')
+
+    def resume_job(self):
+        self.job_controls.put('resume')
 
     def close(self):
         self.stop.set()
@@ -222,12 +241,22 @@ class Controller:
     def _pump(self):
         if self.stop.is_set() or self.reset_requested.is_set():
             # Disconnect during motion/unknown execution aborts before closing.
-            if self.reset_requested.is_set() or self.pending or self.state not in {"Idle", "Alarm"}:
+            if self.reset_requested.is_set() or self.reset_required or self.pending or self.state not in {"Idle", "Alarm"}:
                 self._write(b"\x18")
                 self.aborted = True
                 self._note("Reset sent. Reconnect and re-establish position before moving.")
             raise SessionFault("Disconnected.")
         now = monotonic()
+        while True:
+            try:
+                control = self.job_controls.get_nowait()
+            except Empty:
+                break
+            if self.job['state'] in {'running', 'paused'}:
+                self._write(b'!' if control == 'pause' else b'~')
+                self.job_paused = control == 'pause'
+                with self.lock:
+                    self.job['state'] = 'paused' if self.job_paused else 'running'
         if self.cancel_requested.is_set():
             self._write(b"\x85")
             # Repeat until a jog's acknowledgement and subsequent Idle status:
@@ -258,6 +287,7 @@ class Controller:
                     self.state = status.state
                     if status.state == "Alarm":
                         self.manual_home = None
+                        self.origin_set = False
                     self.status_time = monotonic()
                     if status.wco is not None:
                         self.wco = status.wco
@@ -282,6 +312,7 @@ class Controller:
                 with self.lock:
                     self.state = "Alarm"
                     self.manual_home = None
+                    self.origin_set = False
                 if self.pending:
                     raise SessionFault(f"{line}. Resolve the cause, then reset and reconnect.")
             if self.pending:
@@ -296,7 +327,11 @@ class Controller:
         while not predicate():
             if monotonic() >= deadline:
                 raise SessionFault("GRBL response timed out. Reset and reconnect before continuing.")
+            before = monotonic()
+            paused = self.job_paused
             self._pump()
+            if paused or self.job_paused:
+                deadline += monotonic() - before
 
     def _fresh_status(self):
         # Drain the previous query, then request a status after the last ack.
@@ -377,19 +412,34 @@ class Controller:
             self._command(f"G4 P{settle:.3f}", timeout=15)
 
     def _operate(self, kind, values):
+        if self.reset_required and kind not in {"refresh", "settings"}:
+            raise ValueError("Calibration changed. Use Reset / abort, then reconnect before moving.")
         self._fresh_status()
         allowed = {"Idle", "Alarm"} if kind in {"refresh", "home", "settings"} else {"Alarm"} if kind == "unlock" else {"Idle"}
         if self.state not in allowed:
             raise ValueError(f"Cannot {kind} while GRBL reports {self.state}.")
         if kind == "refresh":
             self._read_all()
+        elif kind == "run_job":
+            self._run_job(values['job'])
         elif kind == "jog":
             self._command(jog_command(values["axis"], values["distance"], values["feed"]))
+        elif kind == "calibration_jog":
+            command = jog_command(values["axis"], values["distance"], values["feed"])
+            if abs(float(values["distance"])) > 10 or float(values["feed"]) > 25:
+                raise ValueError("Calibration moves are limited to 10 mm at 25 mm/min.")
+            self._actuate_pen(values, minimum_settle=.5)
+            self._fresh_status()
+            if self.state != "Idle":
+                raise ValueError("Controller is not idle; calibration move cancelled.")
+            self._command(command)
         elif kind == "home":
             if self.settings.get(22) != 1:
                 raise ValueError("Homing is disabled ($22=0). Configure the switches and homing settings in Setup first.")
             with self.lock:
                 self.manual_home = None
+                self.origin_set = False
+                self.reference += 1
             self._command("$H", timeout=180)
             self.wco = None
         elif kind == "unlock":
@@ -398,6 +448,9 @@ class Controller:
             self._command("G21 G54 G92.1")
             self._command("G10 L20 P1 X0 Y0")
             self.wco = None
+            with self.lock:
+                self.origin_set = True
+                self.reference += 1
         elif kind == "pen":
             self._actuate_pen(values)
         elif kind == "set_home":
@@ -411,6 +464,8 @@ class Controller:
             self.wco = None
             with self.lock:
                 self.manual_home = position[:2]
+                self.origin_set = True
+                self.reference += 1
         elif kind == "go_home":
             target = self.manual_home
             if target is None:
@@ -426,12 +481,19 @@ class Controller:
             if {3, 22, 23, 100, 101, 130, 131}.intersection(changes):
                 with self.lock:
                     self.manual_home = None
+                    self.origin_set = False
+                    self.reference += 1
             # Enable homing before soft limits; disable soft limits before homing.
             order = sorted(changes, key=lambda n: -1 if n == 22 and changes[n] == 1 else n)
             with self.lock:
                 self.report = ""
             try:
                 for number in order:
+                    if number in {100, 101}:
+                        # GRBL's planner/parser position must be synchronized by a reset
+                        # after changing the conversion from steps to machine coordinates.
+                        with self.lock:
+                            self.reset_required = True
                     self._command(f"${number}={changes[number]:g}")
             except ValueError:
                 # Earlier EEPROM writes may have succeeded; show actual readback.
@@ -439,7 +501,51 @@ class Controller:
                 raise
             else:
                 self._read_all()
+                if any(abs(self.settings.get(n, float('inf')) - value) > .0005 for n, value in changes.items()):
+                    raise ValueError("Controller settings readback did not match the requested values. Reopen Setup and inspect them.")
         self._fresh_status()
+
+    def _run_job(self, job):
+        if not isinstance(job, PlotJob):
+            raise ValueError('Run a reviewed workspace drawing.')
+        if self.cancel_requested.is_set():
+            raise ValueError('Jog cancellation is still pending. Wait for Idle before running.')
+        if job.machine.settle < .5:
+            raise ValueError('Review the job with at least 0.5 seconds of pen settling before running.')
+        if not self.origin_set or job.reference != self.reference:
+            raise ValueError('Set paper XY zero or manual home during this connection, then review the job again.')
+        if job.settings != tuple(sorted(self.settings.items())):
+            raise ValueError('Controller settings changed. Review the job again.')
+        if job.machine.servo is not None:
+            live = ServoSettings(self.settings[30], self.settings[31], self.settings[32], self.override)
+            if live != job.machine.servo:
+                raise ValueError('Servo settings or override changed. Read GRBL and review again.')
+        lines = job.commands()
+        with self.lock:
+            self.job = dict(state='running', completed=0, total=len(lines), error='')
+        self.job_paused = False
+        try:
+            for index, line in enumerate(lines):
+                self._wait(lambda: not self.job_paused, 3600)
+                self._command(line, timeout=15)
+                self._fresh_status()
+                def finished():
+                    if self.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
+                        raise SessionFault(f'Job stopped: controller reports {self.state}.')
+                    return self.state == 'Idle' and not self.job_paused
+                # Send only after the previous line has completed. This bounds
+                # buffering and keeps stops, errors, and pen transitions ordered.
+                self._wait(finished, 3600)
+                with self.lock:
+                    self.job['completed'] = index + 1
+            with self.lock:
+                self.job['state'] = 'completed'
+        except (OSError, ValueError) as exc:
+            with self.lock:
+                self.job.update(state='stopped' if self.reset_requested.is_set() or self.stop.is_set() else 'failed', error=str(exc))
+            raise SessionFault(str(exc)) from exc
+        finally:
+            self.job_paused = False
 
     def _run(self):
         try:
@@ -459,17 +565,20 @@ class Controller:
             while True:
                 self._pump()
                 try:
-                    kind, values = self.operations.get_nowait()
+                    operation_id, kind, values = self.operations.get_nowait()
                 except Empty:
                     continue
+                error = None
                 try:
                     self._operate(kind, values)
                 except ValueError as exc:
-                    self.events.put(("error", str(exc)))
+                    error = str(exc)
+                    self.events.put(("error", error))
                 else:
                     self.events.put(("done", kind))
                 finally:
                     with self.lock:
+                        self.last_result = (operation_id, kind, error)
                         self.busy = False
         except (OSError, ValueError) as exc:
             with self.lock:
@@ -489,6 +598,7 @@ class Controller:
                 self.connected, self.busy = False, False
                 self.state = "Disconnected"
                 self.manual_home = None
+                self.origin_set = False
                 self.status = None
                 self.settings = {}
                 self.report = ""

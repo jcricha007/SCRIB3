@@ -70,7 +70,7 @@ class Machine:
         object.__setattr__(self, "down", down)
 
 
-def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = "mm") -> str:
+def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = "mm", *, dry_run: bool = False) -> str:
     scale = factor(units)
     precision = 5 if units == "in" else 3
     def coordinate(value):
@@ -80,7 +80,7 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
         raise ValueError("Create or import a drawing first.")
     if sheet.width > machine.width or sheet.height > machine.height:
         raise ValueError("The paper does not fit the configured usable X/Y travel.")
-    lines = ["(SCRIB3 pen plotter job)", f"{'G20' if units == 'in' else 'G21'} G90 G94 G17 G54 G49"]
+    lines = ["(SCRIB3 pen-up test)" if dry_run else "(SCRIB3 pen plotter job)", f"{'G20' if units == 'in' else 'G21'} G90 G94 G17 G54 G49"]
 
     def actuate(command: str) -> None:
         # Raw Z pen commands are calibrated in mm; adapt them to the job units.
@@ -109,7 +109,7 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
             continue
         x, y = points[0]
         lines.append(f"G0 X{coordinate(x)} Y{coordinate(y)}")
-        actuate(machine.down)
+        actuate(machine.up if dry_run else machine.down)
         for index, (x, y) in enumerate(points[1:]):
             feed = f" F{coordinate(machine.feed)}" if index == 0 else ""
             lines.append(f"G1 X{coordinate(x)} Y{coordinate(y)}{feed}")

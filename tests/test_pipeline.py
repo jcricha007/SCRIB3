@@ -52,8 +52,8 @@ class PlottingTests(TestCase):
                 Machine(40, 30, 600, "G0 Z3", invalid)
 
     def test_ollama_returns_geometry_and_rejects_commands(self):
-        response = {"message": {"content": '{"strokes":[[[0,1],[12,34]]]}' }}
-        with patch.object(ollama, "build_opener") as build:
+        response = {"done": True, "message": {"content": '{"strokes":[[[0,1],[12,34]]]}' }}
+        with patch.object(ollama, "local_models", return_value=("sample:latest",)), patch.object(ollama, "build_opener") as build:
             opener = build.return_value
             opener.open.return_value.__enter__.return_value.read.return_value = json.dumps(response).encode()
             self.assertEqual(ollama.generate_drawing("sample:latest", "draw a line"), (((0, 1), (12, 34)),))
