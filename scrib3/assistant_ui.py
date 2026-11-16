@@ -70,7 +70,7 @@ class AssistantWindow:
         actions.pack(fill='x', pady=8)
         self.button(actions, 'Create new drawing', lambda: self.generate(False)).pack(side='left')
         self.button(actions, 'Revise workspace drawing', lambda: self.generate(True)).pack(side='left', padx=6)
-        self.preview = tk.Canvas(create, background='#e4e9e1', highlightthickness=0, height=100)
+        self.preview = tk.Canvas(create, background='#e7ecf3', highlightthickness=0, height=100)
         self.preview.pack(fill='both', expand=True)
         self.preview.bind('<Configure>', lambda _: self.paint())
         self.after_id = self.window.after(80, self.poll)
@@ -79,7 +79,7 @@ class AssistantWindow:
     def text_area(self, parent, height, readonly=False, expand=False):
         frame = ttk.Frame(parent)
         frame.pack(fill='both' if expand else 'x', expand=expand)
-        text = tk.Text(frame, height=height, width=40, wrap='word', background='#fffef8', padx=8, pady=6)
+        text = tk.Text(frame, height=height, width=40, wrap='word', background='#ffffff', padx=8, pady=6)
         scroll = ttk.Scrollbar(frame, command=text.yview)
         scroll.pack(side='right', fill='y')
         text.configure(yscrollcommand=scroll.set)
@@ -217,11 +217,11 @@ class AssistantWindow:
     def paint(self):
         self.preview.delete('all')
         if not self.draft:
-            self.preview.create_text(20, 20, anchor='nw', text='Drawing preview', fill='#555e54')
+            self.preview.create_text(20, 20, anchor='nw', text='Drawing preview', fill='#617085')
             return
         width, height = max(60, self.preview.winfo_width()), max(60, self.preview.winfo_height())
         for stroke in fit_to_sheet(self.draft, Sheet(width, height, 16)):
-            self.preview.create_line(*(value for x, y in stroke for value in (x, height-y)), fill='#262a25', width=1.2)
+            self.preview.create_line(*(value for x, y in stroke for value in (x, height-y)), fill='#172033', width=1.2)
 
     def apply(self):
         if self.draft is None:

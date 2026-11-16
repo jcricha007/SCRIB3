@@ -301,3 +301,38 @@ class DesignDesktopTests(TestCase):
                 self.assertLessEqual(widget.winfo_rootx()+widget.winfo_width(), parent.winfo_rootx()+parent.winfo_width())
                 self.assertLessEqual(widget.winfo_rooty()+widget.winfo_height(), parent.winfo_rooty()+parent.winfo_height())
             self.assertFalse(error.called, error.call_args)
+
+    def test_quality_metrics_overlay_cache_and_compact_workspace(self):
+        from math import sin
+        from scrib3 import app as app_module
+        app = self.app
+        app.set_drawing('Dense curve', (tuple((i/20, sin(i/30)) for i in range(1001)),))
+        report = app.quality_report
+        self.assertEqual(report.before.points, 1001)
+        self.assertLess(report.after.points, 1001)
+        self.assertEqual(app.metric_points.get(), f'{report.after.points:,}')
+        before = app.drawing
+        app.show_original.set(True); app.paint()
+        self.assertEqual(len(app.canvas.find_withtag('source')), len(app.source))
+        self.assertEqual(app.drawing, before)
+        with patch.object(app_module, 'prepare_toolpath', wraps=app_module.prepare_toolpath) as process:
+            app.refresh(); app.refresh()
+            self.assertEqual(process.call_count, 0)
+            app.quality_mode.set('Fine'); app.refresh()
+            self.assertEqual(process.call_count, 1)
+            app.margin.set('0.4'); app.refresh()
+            self.assertEqual(process.call_count, 2)
+            app.paper_mount.set('bottom_left_x')
+            self.assertEqual(process.call_count, 3)
+        app.remove_duplicates.set(True); app.refresh()
+        app.save_preset()
+        saved = presets.load(app.preset_file)
+        self.assertEqual(saved['quality_mode'], 'Fine')
+        self.assertTrue(saved['remove_duplicates'])
+        for geometry in ('1280x820', '800x650'):
+            self.root.geometry(geometry); app.tabs.select(0); self.root.update()
+            self.assertGreater(app.canvas.winfo_height(), 100)
+            for card in app.metric_cards:
+                self.assertLessEqual(card.winfo_rootx()+card.winfo_width(),
+                                     app.canvas.winfo_rootx()+app.canvas.winfo_width())
+                self.assertLess(card.winfo_rooty()+card.winfo_height(), self.root.winfo_rooty()+self.root.winfo_height())
