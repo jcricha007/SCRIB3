@@ -7,7 +7,8 @@ import tkinter as tk
 from tkinter import filedialog, font, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
-from . import grbl, ollama
+from . import ollama
+from .controls import ControlPanel
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths, read_svg
 from .gcode import Machine, generate_gcode
@@ -57,6 +58,7 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
+        root.protocol("WM_DELETE_WINDOW", self.controls.shutdown)
         self.refresh()
         root.after(80, self.poll_results)
 
@@ -93,6 +95,9 @@ class Studio:
             side="right", pady=5
         )
 
+        tk.Label(frame, textvariable=self.status, background=BACKGROUND, foreground=MUTED,
+                 wraplength=730, height=2, justify="left", anchor="w").pack(side="bottom", anchor="w")
+        ttk.Separator(frame).pack(side="bottom", fill="x", pady=(8, 4))
         body = ttk.Frame(frame)
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
@@ -101,18 +106,21 @@ class Studio:
         workspace.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         toolbar = ttk.Frame(workspace)
         toolbar.pack(fill="x", pady=(0, 7))
-        ttk.Button(toolbar, text="Import SVG", command=self.import_svg).pack(side="left")
-        ttk.Button(toolbar, text="Load sample", command=self.load_sample).pack(side="left", padx=6)
+        buttons = ttk.Frame(toolbar)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Import SVG", command=self.import_svg).pack(side="left")
+        ttk.Button(buttons, text="Load sample", command=self.load_sample).pack(side="left", padx=6)
         ttk.Checkbutton(
             toolbar, text="Show pen-up travel", variable=self.show_travel, command=self.paint,
-        ).pack(side="right")
+        ).pack(anchor="w", pady=(5, 0))
         self.canvas = tk.Canvas(workspace, background=DESK, borderwidth=0, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self.paint())
         ttk.Label(workspace, textvariable=self.source_name, style="Title.TLabel").pack(
             anchor="w", pady=(8, 0)
         )
-        ttk.Label(workspace, textvariable=self.stats, style="Muted.TLabel").pack(anchor="w")
+        self.stats_label = ttk.Label(workspace, textvariable=self.stats, style="Muted.TLabel", wraplength=320)
+        self.stats_label.pack(anchor="w")
 
         tabs = ttk.Notebook(body)
         tabs.grid(row=0, column=1, sticky="ns")
@@ -124,8 +132,9 @@ class Studio:
         tabs.add(machine, text="Machine")
         self.build_drawing_tab(drawing)
         self.build_machine_tab(machine)
-        ttk.Separator(frame).pack(fill="x", pady=(8, 4))
-        ttk.Label(frame, textvariable=self.status, style="Muted.TLabel", wraplength=730).pack(anchor="w")
+        self.controls = ControlPanel(tabs, self)
+        tabs.add(self.controls, text="Control")
+        self.tabs = tabs
 
     def build_drawing_tab(self, panel: ttk.Frame) -> None:
         ttk.Label(panel, text="Paper and toolpath", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
@@ -172,16 +181,10 @@ class Studio:
                   style="Muted.TLabel").grid(row=7, columnspan=2, sticky="w", pady=(6, 0))
         ttk.Separator(panel).grid(row=8, columnspan=2, sticky="ew", pady=12)
 
-        ttk.Label(panel, text="Arduino connection", style="Title.TLabel").grid(row=9, columnspan=2, sticky="w")
-        ttk.Label(panel, text="Serial port").grid(row=10, column=0, sticky="w", pady=3)
-        self.port_picker = ttk.Combobox(panel, textvariable=self.port, state="readonly", width=15)
-        self.port_picker.grid(row=10, column=1, sticky="ew")
-        self.field(panel, 11, "Baud rate", self.baud)
-        ttk.Button(panel, text="Find ports", command=self.scan_ports).grid(row=12, column=0, sticky="ew", padx=(0, 7))
-        self.inspect_button = ttk.Button(panel, text="Read GRBL", command=self.inspect)
-        self.inspect_button.grid(row=12, column=1, sticky="ew")
-        ttk.Label(panel, text="Opening the port can reset the Arduino\nand move the servo. Inspect while idle.",
-                  style="Muted.TLabel").grid(row=13, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Button(panel, text="Use controller X/Y travel", command=lambda: self.controls.copy_travel()).grid(
+            row=9, columnspan=2, sticky="ew")
+        ttk.Label(panel, text="Connect, set up, home, and jog on the Control tab.\nOpening the port can reset the Arduino\nand move the servo.",
+                  style="Muted.TLabel").grid(row=10, columnspan=2, sticky="w", pady=(8, 0))
 
     def field(self, panel: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
         ttk.Label(panel, text=label).grid(row=row, column=0, sticky="w", padx=(0, 10), pady=3)
@@ -208,6 +211,7 @@ class Studio:
         width, height = canvas.winfo_width(), canvas.winfo_height()
         if min(width, height) < 76:
             return
+        self.stats_label.configure(wraplength=max(150, width))
         canvas.delete("all")
         for x in range(12, width, 16):
             for y in range(12, height, 16):
@@ -273,15 +277,7 @@ class Studio:
             self.status.set("SVG fitted to paper. Filled shapes plot as outlines.")
 
     def scan_ports(self) -> None:
-        try:
-            available = grbl.ports()
-        except OSError as exc:
-            messagebox.showerror("Find serial ports", str(exc), parent=self.root)
-            return
-        self.port_picker.configure(values=available)
-        if self.port.get() not in available:
-            self.port.set(available[0] if available else "")
-        self.status.set(f"Found {len(available)} serial port(s)." if available else "No serial ports found.")
+        self.controls.find_ports()
 
     def run_background(self, action, callback, button: ttk.Button, title: str) -> None:
         button.state(["disabled"])
@@ -329,34 +325,7 @@ class Studio:
                             self.generate_button, "Generate drawing")
 
     def inspect(self) -> None:
-        port = self.port.get()
-        self.controller_report = None
-        try:
-            baud = int(self.baud.get())
-        except ValueError:
-            messagebox.showerror("Read GRBL", "Enter a whole-number baud rate.", parent=self.root)
-            return
-        self.status.set(f"Reading GRBL on {port}…" if port else "Select a serial port.")
-
-        def show(report: str) -> None:
-            self.controller_report = (port, baud, report)
-            self.status.set(f"GRBL responded on {port}.")
-            if self.firmware.get() == SERVO_PROFILE:
-                try:
-                    summary = ServoSettings.from_report(report).describe()
-                except ValueError as exc:
-                    summary = f"Uploaded RC-servo profile\n{exc}"
-                report = summary + "\n\n" + report
-            dialog, controls = self.text_dialog("GRBL connection report", report)
-
-            def copy() -> None:
-                dialog.clipboard_clear()
-                dialog.clipboard_append(report)
-                self.status.set("GRBL report copied.")
-
-            ttk.Button(controls, text="Copy report", command=copy).pack(side="right")
-
-        self.run_background(lambda: grbl.inspect(port, baud), show, self.inspect_button, "Read GRBL")
+        self.controls.read_report()
 
     def review(self) -> None:
         try:
@@ -417,7 +386,16 @@ class Studio:
         return dialog, controls
 
 
-def main() -> None:
+def main(connect: str | None = None, baud: int | None = None) -> None:
     root = tk.Tk()
-    Studio(root)
+    studio = Studio(root)
+    if connect is not None:
+        studio.tabs.select(studio.controls)
+        if connect == "auto" or baud is None:
+            root.after(100, lambda: studio.controls.auto_detect(
+                port=None if connect == "auto" else connect, baud=baud))
+        else:
+            studio.port.set(connect)
+            studio.baud.set(str(baud))
+            root.after(100, studio.controls.connect)
     root.mainloop()

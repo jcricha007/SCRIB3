@@ -48,8 +48,9 @@ The profile uses reported $30/$31 values, requires $32=0 and spindle override 10
 
 1. With the plotter idle, connect the Arduino over USB.
 2. Select **Machine → Firmware profile → Uploaded RC-servo** in SCRIB3.
-3. Choose **Find ports**, select the Arduino port, and select **Read GRBL**.
-4. Copy the resulting report for review. It includes the build information, settings, parser modes, coordinate offsets, and override status.
+3. On **Control**, choose **Auto detect**, or use **Find ports**, select the Arduino port and 115200 baud, and click **Connect**.
+4. Select **Read GRBL** to display the report.
+5. Copy the resulting report for review. It includes the build information, settings, parser modes, coordinate offsets, and override status.
 
 A previous successful G-code file is optional. After checking the installed firmware and calibrating the lift, use a small generated drawing to establish the first plot.
 

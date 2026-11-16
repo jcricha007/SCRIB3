@@ -17,11 +17,6 @@ if [ "$(uname -s)" != "Darwin" ]; then
     exit 1
 fi
 
-if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--check" ]; }; then
-    printf 'Usage: bash Run-SCRIB3.command [--check]\n' >&2
-    exit 1
-fi
-
 python_probe='import sys, tkinter, venv; sys.exit(0 if sys.version_info >= (3, 12) else 1)'
 
 if [ -n "${SCRIB3_PYTHON:-}" ]; then
