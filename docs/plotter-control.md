@@ -1,6 +1,6 @@
 # Connect and bring up the plotter
 
-The **Control** tab provides a persistent GRBL 1.1 connection, live work/machine XY positions in millimeters, active input pins, controller setup, homing, step jogging, paper zero, and pen controls. The Arduino stores settings in EEPROM; the **Machine** tab contains the drawing/export and pen-command values.
+The **Control** tab provides a persistent GRBL 1.1 connection, live work/machine XY positions in the selected display units, active input pins, controller setup, homing, step jogging, paper zero, and pen controls. The Arduino stores settings in EEPROM; the **Machine** tab contains the drawing/export and pen-command values.
 
 ## Connection
 
@@ -43,13 +43,39 @@ Use `--connect COM3 --baud 115200` for a known port, or `--scan` to print discov
 ## Setup and first movement
 
 1. Connect and open **Setup…**. Values come from the Arduino, including steps/mm, X/Y maximum travel, rate, acceleration, direction masks, limits, homing, and spindle settings. **Apply changed settings** writes only edited values, one acknowledged setting at a time, then reads back the controller. An error stops the remaining writes; earlier successful changes stay saved. Reopen Setup to see the resulting values.
-2. Check the limit switches using **Active inputs**. Enable homing only when the switches, their polarity, seek direction, and pull-off are configured. The supplied firmware homes X and Y together; `$22=0` disables homing by default. **Home** sends `$H` and uses the installed firmware's homing cycle. Homing has a 180-second response timeout. Firmware startup blocks may run after successful homing.
-3. With the pen clear of the paper, start with the default **1 mm** step and **300 mm/min** feed. Each X/Y button requests one incremental jog. Wait for **Idle** before the next move. Verify direction and measured travel, then calibrate steps/mm in Setup if needed. The maximum step accepted by the app is 100 mm. GRBL enforces enabled soft/hard limits; the app cannot infer physical travel limits or switch locations from an uncalibrated board.
+2. Check the limit switches using **Active inputs**. Enable homing only when the switches, their polarity, seek direction, and pull-off are configured. The supplied firmware homes X and Y together; `$22=0` disables homing by default. **Switch home** sends `$H` and uses the installed firmware's homing cycle. Homing has a 180-second response timeout. Firmware startup blocks may run after successful homing.
+3. With the pen clear of the paper, start with the bundled preset's **0.01 in** step and **4 in/min** feed (0.254 mm and 101.6 mm/min). Each X/Y button requests one incremental jog. Wait for **Idle** before the next move. Verify direction and measured travel, then calibrate steps/mm in Setup if needed. The maximum step accepted by the app is 100 mm (about 3.937 in). GRBL enforces enabled soft/hard limits; the app cannot infer physical travel limits or switch locations from an uncalibrated board.
 4. On **Machine**, choose the appropriate firmware profile and enter the lift commands. Test **Pen up** and **Pen down** on Control. The uploaded RC-servo profile checks the current `$30`, `$31`, `$32`, and spindle override before issuing a pen command. Its pulse limits are described in [firmware.md](firmware.md). Z lift commands run in absolute millimeters in G54 with tool-length offset disabled, matching exported jobs. PWM commands and settle time use the entered values.
 5. Jog to the paper's lower-left corner and select **Paper XY zero**. This selects G54, clears all temporary G92 offsets, and writes the current XY location as G54 zero (`G10 L20 P1 X0 Y0`). It does not move an axis or change the G54 Z offset. Clearing a previous G92 Z offset also changes the displayed Z reference; recheck a Z-based pen lift if one was active. Re-establish the origin after a reset, missed steps, or power loss.
 6. Use **Machine → Use controller X/Y travel** if the controller's travel settings match the plotter's usable paper area. Review and export a drawing as before. Full drawing/job streaming remains a later step; this update adds setup and manual control.
 
 Homing finds a machine reference using switches. Paper zero defines where the drawing starts. **Unlock alarm** explicitly sends `$X`; unlocking does not establish a machine reference or verify the reason for the alarm.
+
+## Metric/imperial units and presets
+
+The header's **Units** selector changes between **Inches** and **Millimeters**. Existing numeric inputs are converted, including paper size/margins, usable travel, drawing feed, jog distance/feed, live positions, and controller setup fields. Setup shows steps per inch in imperial mode; for example, 250 steps/mm becomes 6350 steps/in. Applying that unchanged value performs no EEPROM write. Setup dialogs retain the unit labels they had when opened, even if the main window's units change.
+
+Internally, geometry and the controller API use millimeters. Jog and reference commands explicitly use G21; only their displayed/input values are converted. The unit selector does not write `$13`, change steps/mm, or move the machine. Raw GRBL reports/logs retain the controller's original values. Export emits G20 with inch coordinates/feeds or G21 with metric coordinates/feeds. Raw Z pen commands on Machine are always entered in millimeters and converted for inch export; M3 S values, M5, seconds, and non-distance settings are never rescaled.
+
+The bundled preset in `scrib3/presets/john-servo.json` contains John's observed pen-up `M3 S180` and pen-down `M3 S70` positions and defaults to inches. The full-up trial `M3 S240` is not used. It leaves usable travel and drawing feed blank because those values are still awaiting calibration. The firmware profile continues to validate each pen action against live spindle settings and override.
+
+**Machine → Save preset** stores the current paper, travel, feed, jog, pen, firmware-profile, and unit preferences as the single active local preset. It reloads on the next launch, including after repository updates. **Restore John's** reloads the bundled values into the form; choose Save preset to retain them for later launches. Saved values are stored in:
+
+- macOS: `~/Library/Application Support/SCRIB3/machine-preset.json`
+- Windows: `%APPDATA%/SCRIB3/machine-preset.json`
+- Linux: `$XDG_CONFIG_HOME/SCRIB3/machine-preset.json`, defaulting to `~/.config/SCRIB3/machine-preset.json`
+
+Saving uses an atomic file replacement. Invalid saved files produce a message and fall back to the bundled preset; they are preserved until an explicit successful save. The file contains no connection or position state, and loading it sends no serial commands. Saved pen commands do not alter the firmware's startup/reset M5 position.
+
+## Setting manual home
+
+1. Jog to the point you want to use as the manual home reference, with GRBL Idle.
+2. Click **Set home**. SCRIB3 records the current machine XY position for this connection, selects G54, clears temporary G92 offsets, and sets G54 XY zero using `G10 L20 P1 X0 Y0`. It moves no axes and needs no switches or `$22` change. As with Paper XY zero, clearing G92 also clears a temporary G92 Z offset.
+3. **Go home** first issues the configured Pen up command, waits the configured settle time or 0.5 seconds, whichever is longer, then uses an absolute machine-coordinate jog to the recorded point at the current jog feed. It follows a direct XY line; ensure that path is clear. The saved reference remains the same if you later change Paper XY zero.
+
+**Cancel jog** works during the return, and cancellation during pen lifting prevents the subsequent XY move. Invalid pen commands or controller errors prevent the return. The reference is cleared by disconnect/reset, an alarm, switch homing, or changes to direction/steps-per-distance/travel/homing settings. It is never restored from a preset. Re-establish it if the machine loses steps or is moved by hand; software cannot detect that displacement.
+
+Manual home is a work reference. It does not establish physical machine limits, clear alarms, enable soft limits, or make an uncalibrated machine position reliable after power loss. **Switch home** performs the firmware's `$H` cycle instead and is disabled when `$22=0`.
 
 ## Cancellation, reset, and failures
 

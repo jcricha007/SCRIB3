@@ -149,6 +149,7 @@ class Controller:
         self.status_time = 0.0
         self.settings: dict[int, float] = {}
         self.wco = None
+        self.manual_home = None
         self.override = None
         self.override_line = ""
         self.operation_kind = ""
@@ -186,11 +187,11 @@ class Controller:
                         machine = tuple(p + o for p, o in zip(position, offset))
             return dict(connected=self.connected, busy=self.busy, fault=self.fault,
                         state=self.state, fresh=monotonic() - self.status_time < 2,
-                        work=work, machine=machine, pins=status.pins if status else "",
+                        work=work, machine=machine, manual_home=self.manual_home, pins=status.pins if status else "",
                         settings=dict(self.settings), report=self.report, log="\n".join(self.log))
 
     def request(self, kind: str, **values):
-        if kind not in {"refresh", "jog", "home", "unlock", "zero", "pen", "settings"}:
+        if kind not in {"refresh", "jog", "home", "unlock", "zero", "pen", "settings", "set_home", "go_home"}:
             raise ValueError("Unsupported controller operation.")
         with self.lock:
             if not self.connected or self.fault:
@@ -255,6 +256,8 @@ class Controller:
                 with self.lock:
                     self.status = status
                     self.state = status.state
+                    if status.state == "Alarm":
+                        self.manual_home = None
                     self.status_time = monotonic()
                     if status.wco is not None:
                         self.wco = status.wco
@@ -278,6 +281,7 @@ class Controller:
             if line.startswith("ALARM:"):
                 with self.lock:
                     self.state = "Alarm"
+                    self.manual_home = None
                 if self.pending:
                     raise SessionFault(f"{line}. Resolve the cause, then reset and reconnect.")
             if self.pending:
@@ -353,6 +357,25 @@ class Controller:
         with self.lock:
             self.report = "\n".join(report)
 
+    def _actuate_pen(self, values, minimum_settle=0):
+        family, command, position = pen_command(values["command"])
+        if values.get("servo"):
+            if family != "PWM":
+                raise ValueError("The uploaded servo firmware uses M3 S or M5.")
+            if not {30, 31, 32}.issubset(self.settings) or self.override is None:
+                raise ValueError("Read GRBL to capture servo settings and the spindle override first.")
+            servo = ServoSettings(self.settings[30], self.settings[31], self.settings[32], self.override)
+            servo.timer_count(None if command == "M5" else position)
+        settle = float(values.get("settle", 0))
+        if not 0 <= settle <= 10:
+            raise ValueError("Pen settle time must be between 0 and 10 seconds.")
+        settle = max(settle, minimum_settle)
+        if family == "Z":
+            self._command("G21 G90 G94 G54 G49")
+        self._command(command)
+        if settle:
+            self._command(f"G4 P{settle:.3f}", timeout=15)
+
     def _operate(self, kind, values):
         self._fresh_status()
         allowed = {"Idle", "Alarm"} if kind in {"refresh", "home", "settings"} else {"Alarm"} if kind == "unlock" else {"Idle"}
@@ -365,6 +388,8 @@ class Controller:
         elif kind == "home":
             if self.settings.get(22) != 1:
                 raise ValueError("Homing is disabled ($22=0). Configure the switches and homing settings in Setup first.")
+            with self.lock:
+                self.manual_home = None
             self._command("$H", timeout=180)
             self.wco = None
         elif kind == "unlock":
@@ -374,24 +399,33 @@ class Controller:
             self._command("G10 L20 P1 X0 Y0")
             self.wco = None
         elif kind == "pen":
-            family, command, position = pen_command(values["command"])
-            if values.get("servo"):
-                if family != "PWM":
-                    raise ValueError("The uploaded servo firmware uses M3 S or M5.")
-                if not {30, 31, 32}.issubset(self.settings) or self.override is None:
-                    raise ValueError("Read GRBL to capture servo settings and the spindle override first.")
-                servo = ServoSettings(self.settings[30], self.settings[31], self.settings[32], self.override)
-                servo.timer_count(None if command == "M5" else position)
-            settle = float(values.get("settle", 0))
-            if not 0 <= settle <= 10:
-                raise ValueError("Pen settle time must be between 0 and 10 seconds.")
-            if family == "Z":
-                self._command("G21 G90 G94 G54 G49")
-            self._command(command)
-            if settle:
-                self._command(f"G4 P{settle:.3f}", timeout=15)
+            self._actuate_pen(values)
+        elif kind == "set_home":
+            with self.lock:
+                self.manual_home = None
+            position = self.snapshot()["machine"]
+            if position is None:
+                raise ValueError("Wait for machine coordinates before setting manual home.")
+            self._command("G21 G54 G92.1")
+            self._command("G10 L20 P1 X0 Y0")
+            self.wco = None
+            with self.lock:
+                self.manual_home = position[:2]
+        elif kind == "go_home":
+            target = self.manual_home
+            if target is None:
+                raise ValueError("Set manual home during this connection before returning to it.")
+            feed = positive(values["feed"], "return feed in mm/min", 100000)
+            self._actuate_pen(values, minimum_settle=.5)
+            self._fresh_status()
+            if self.state != "Idle" or self.manual_home != target:
+                raise ValueError("Controller reference changed; manual return cancelled.")
+            self._command(f"$J=G21 G90 G53 X{target[0]:.3f} Y{target[1]:.3f} F{feed:.3f}")
         elif kind == "settings":
             changes = setting_changes(values["values"], self.settings)
+            if {3, 22, 23, 100, 101, 130, 131}.intersection(changes):
+                with self.lock:
+                    self.manual_home = None
             # Enable homing before soft limits; disable soft limits before homing.
             order = sorted(changes, key=lambda n: -1 if n == 22 and changes[n] == 1 else n)
             with self.lock:
@@ -454,6 +488,7 @@ class Controller:
             with self.lock:
                 self.connected, self.busy = False, False
                 self.state = "Disconnected"
+                self.manual_home = None
                 self.status = None
                 self.settings = {}
                 self.report = ""

@@ -6,6 +6,7 @@ from math import isfinite
 
 from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
+from .units import factor
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
 Z_COMMAND = re.compile(rf"(G[01])[ \t]*Z({NUMBER})(?:[ \t]*F({NUMBER}))?", re.ASCII)
@@ -69,14 +70,25 @@ class Machine:
         object.__setattr__(self, "down", down)
 
 
-def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine) -> str:
+def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = "mm") -> str:
+    scale = factor(units)
+    precision = 5 if units == "in" else 3
+    def coordinate(value):
+        return f"{value / scale:.{precision}f}"
+
     if not drawing:
         raise ValueError("Create or import a drawing first.")
     if sheet.width > machine.width or sheet.height > machine.height:
         raise ValueError("The paper does not fit the configured usable X/Y travel.")
-    lines = ["(SCRIB3 pen plotter job)", "G21 G90 G94 G17 G54 G49"]
+    lines = ["(SCRIB3 pen plotter job)", f"{'G20' if units == 'in' else 'G21'} G90 G94 G17 G54 G49"]
 
     def actuate(command: str) -> None:
+        # Raw Z pen commands are calibrated in mm; adapt them to the job units.
+        if units == "in" and (match := Z_COMMAND.fullmatch(command)):
+            mode, position, feed = match.groups()
+            command = f"{mode} Z{coordinate(float(position))}"
+            if feed:
+                command += f" F{coordinate(float(feed))}"
         lines.append(command)
         if machine.settle:
             lines.append(f"G4 P{machine.settle:.3f}")
@@ -88,21 +100,21 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine) -> str:
         for x, y in stroke:
             if not (0 <= x <= sheet.width + 1e-8 and 0 <= y <= sheet.height + 1e-8):
                 raise ValueError("A plotting point is outside the paper.")
-            point = (round(x, 3), round(y, 3))
-            if point[0] > machine.width or point[1] > machine.height:
+            point = (float(coordinate(x)) * scale, float(coordinate(y)) * scale)
+            if point[0] > machine.width + 1e-9 or point[1] > machine.height + 1e-9:
                 raise ValueError("A rounded plotting point is outside usable X/Y travel.")
             if not points or point != points[-1]:
                 points.append(point)
         if len(points) < 2:
             continue
         x, y = points[0]
-        lines.append(f"G0 X{x:.3f} Y{y:.3f}")
+        lines.append(f"G0 X{coordinate(x)} Y{coordinate(y)}")
         actuate(machine.down)
         for index, (x, y) in enumerate(points[1:]):
-            feed = f" F{machine.feed:.3f}" if index == 0 else ""
-            lines.append(f"G1 X{x:.3f} Y{y:.3f}{feed}")
+            feed = f" F{coordinate(machine.feed)}" if index == 0 else ""
+            lines.append(f"G1 X{coordinate(x)} Y{coordinate(y)}{feed}")
         actuate(machine.up)
         plotted = True
     if not plotted:
-        raise ValueError("No stroke is long enough to plot at 0.001 mm resolution.")
+        raise ValueError(f"No stroke is long enough to plot at {10 ** -precision:g} {units} resolution.")
     return "\n".join(lines) + "\n"
