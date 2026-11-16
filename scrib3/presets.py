@@ -23,7 +23,8 @@ LEGACY_FIELDS = {"schema_version", "name", "units", "firmware", "pen_up", "pen_d
           "machine_height_mm", "feed_mm_min", "jog_step_mm", "jog_feed_mm_min"}
 NEW_DEFAULTS = {"x_steps_per_mm": 5.0, "y_steps_per_mm": 5.0, "ollama_model": ""}
 V2_FIELDS = LEGACY_FIELDS | NEW_DEFAULTS.keys()
-FIELDS = V2_FIELDS | {'paper_mount'}
+V3_FIELDS = V2_FIELDS | {'paper_mount'}
+FIELDS = V3_FIELDS | {'seam_overlap_mm'}
 
 
 def preset_path() -> Path:
@@ -42,7 +43,9 @@ def validate(data: dict) -> dict:
     if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 2 and set(data) == V2_FIELDS:
         # Keep existing coordinate behavior until the operator selects a mounting.
         data = data | {'schema_version': 3, 'paper_mount': 'bottom_left_x'}
-    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 3:
+    if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 3 and set(data) == V3_FIELDS:
+        data = data | {'schema_version': 4, 'seam_overlap_mm': 0.0}
+    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 4:
         raise ValueError("Unsupported or incomplete machine preset.")
     result = dict(data)
     if not isinstance(result["name"], str) or not result["name"].strip() or len(result["name"]) > 80:
@@ -66,7 +69,7 @@ def validate(data: dict) -> dict:
     Machine(result["machine_width_mm"] if result["machine_width_mm"] is not None else 1,
             result["machine_height_mm"] if result["machine_height_mm"] is not None else 1,
             result["feed_mm_min"] if result["feed_mm_min"] is not None else 1,
-            result["pen_up"], result["pen_down"], result["settle"])
+            result["pen_up"], result["pen_down"], result["settle"], seam_overlap=result['seam_overlap_mm'])
     if not .001 <= result["jog_step_mm"] <= 100 or not .001 <= result["jog_feed_mm_min"] <= 100000:
         raise ValueError("Preset jog distance or feed is outside the supported range.")
     if not all(.001 <= result[key] <= 100000 for key in ("x_steps_per_mm", "y_steps_per_mm")):

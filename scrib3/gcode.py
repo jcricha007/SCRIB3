@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from math import isfinite
+from math import dist, isfinite
 
 from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
@@ -49,6 +49,7 @@ class Machine:
     settle: float = 0
     servo: ServoSettings | None = None
     paper_mount: str = 'bottom_left_x'
+    seam_overlap: float = 0
 
     def __post_init__(self) -> None:
         validate_mount(self.paper_mount)
@@ -58,6 +59,8 @@ class Machine:
             raise ValueError("Enter a positive drawing feed rate in mm/min.")
         if not 0 <= self.settle <= 10:
             raise ValueError("Pen settle time must be between 0 and 10 seconds.")
+        if not 0 <= self.seam_overlap <= 5:
+            raise ValueError("Closed-loop overlap must be between 0 and 5 mm.")
         up_mode, up, up_value = pen_command(self.up)
         down_mode, down, down_value = pen_command(self.down)
         if up_mode != down_mode or up_value == down_value:
@@ -100,6 +103,9 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
     actuate(machine.up)
     plotted = False
     for stroke in drawing:
+        # Only exact, explicitly closed source loops get overlap. Do not infer
+        # closure from rounded coordinates or bridge deliberate small gaps.
+        stroke = overlap_closed_stroke(stroke, machine.seam_overlap)
         points: list[tuple[float, float]] = []
         for x, y in stroke:
             if not (0 <= x <= sheet.width + 1e-8 and 0 <= y <= sheet.height + 1e-8):
@@ -123,3 +129,24 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
     if not plotted:
         raise ValueError(f"No stroke is long enough to plot at {10 ** -precision:g} {units} resolution.")
     return "\n".join(lines) + "\n"
+
+
+def overlap_closed_stroke(stroke, distance):
+    """Retrace at most one lap along existing segments, never beyond the path."""
+    if distance <= 0 or len(stroke) < 4 or stroke[0] != stroke[-1]:
+        return stroke
+    extra = []
+    remaining = distance
+    for start, end in zip(stroke, stroke[1:]):
+        length = dist(start, end)
+        if length == 0:
+            continue
+        if remaining < length:
+            ratio = remaining / length
+            extra.append(tuple(a + (b-a)*ratio for a, b in zip(start, end)))
+            break
+        extra.append(end)
+        remaining -= length
+        if remaining <= 1e-12:
+            break
+    return tuple(stroke) + tuple(extra)

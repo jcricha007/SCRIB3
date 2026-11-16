@@ -50,16 +50,18 @@ On **Machine**, choose **Save preset** to remember current values and units. **R
 
 For guided setup, use **Control → Setup → Motion → Guided calibration…**. The guide reads the current settings, applies the saved starting calibration on request, raises the pen for a small test move, and calculates an axis correction from your ruler/caliper measurement. It waits for Idle, accounts for step rounding, checks readback, and saves successful corrections. [Calibration instructions](docs/calibration.md)
 
-**Machine → Smooth motion** previews a starting profile: drawing 3,000 mm/min, jog 150 mm/min, X/Y maximum rate 3,000 mm/min, acceleration 25 mm/s², and junction deviation 0.020 mm. Choose **Apply app + controller** to verify/read back controller settings and save app speeds. Existing preferences remain unchanged until explicitly applied. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
+**Machine → Smooth motion** previews a starting profile: drawing 3,000 mm/min, jog 150 mm/min, X/Y maximum rate 8,890 mm/min (350 in/min), acceleration 25 mm/s², and junction deviation 0.020 mm. Choose **Apply app + controller** to verify/read back controller settings and save app speeds. Existing preferences remain unchanged until explicitly applied. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
 
 Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a 0.5-inch margin, and **top-left home with +Y right and −X down**. For an existing installation, choose **Design → Paper guide → Use John's Letter setup** to apply and save that mapping. The guide also offers Letter/A4 layouts and the original bottom-left mapping. Jog buttons follow the selected mounting. Changing the mounting invalidates paper zero and old reviews. Paper selection never changes machine travel: verify usable X travel down the page and Y travel across it.
 
 ## Make a drawing
 
-1. Load the sample, import an SVG, create a Grid/Spiral/Rosette on **Design**, or open the Ollama assistant. In **Create / revise**, request new line art or revise the workspace drawing; inspect the proposal and choose **Use drawing in workspace**. Chat can help develop the brief. AI responses cannot operate the controller.
-2. Set paper size and margin, then select **Fit to paper**. The drawing scales proportionally using its artwork bounds. Rotate or mirror it, use **Undo design** to restore the previous source, and **Export SVG** to save the fitted geometry. **Show pen-up travel** reveals moves between strokes.
+1. Load the sample, import SVG, DXF, or drawing JSON, create a Grid/Spiral/Rosette on **Design**, or open the Ollama assistant. In **Create / revise**, request new line art or revise the workspace drawing; inspect the proposal and choose **Use drawing in workspace**. Chat can help develop the brief. AI responses cannot operate the controller.
+2. Set paper size and margin, then select **Fit to paper**. The drawing scales proportionally using its artwork bounds. Rotate or mirror it, use **Undo design** to restore the previous source, and **Export drawing** to save the fitted geometry. **Show pen-up travel** reveals moves between strokes.
 3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then connect on **Control** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
 4. Use **Control → Set home** (or **Paper XY zero**) at the paper corner selected in Paper guide—top-left for John's setup, then select **Review G-code**. The review starts with **Pen-up test** selected; leave it selected for the first trial, or uncheck it to draw with ink. Choose **Run sketch** to execute in SCRIB3, or **Save .gcode** to export the reviewed mode. The job uses absolute coordinates in the selected units and G54, with the selected paper mapping. John's setup plots into **−X and +Y** from top-left home. [Running sketches](docs/running-sketches.md)
+
+**Plot quality** offers a short closed-loop overlap to help cover pen-contact gaps at circle seams. Choose **Use 0.5 mm → Apply and save**, then review again. Open paths retain their endpoints. See [vector formats, seam checks, and motor heat](docs/vector-formats.md) for supported DXF entities, examples, and the JSON format.
 
 SVG import plots outlines. Convert live text to paths, trace raster images to vectors, and flatten clipping and masks to paths before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
 
@@ -87,7 +89,7 @@ Jog to the desired starting location and click **Control → Set home**. It mark
 
 | Milestone | Deliverable |
 | --- | --- |
-| Drawing workbench | SVG import/export, pattern creation, rotate/mirror/undo, local Ollama chat, and reviewed drawing generation/revision before G-code export. |
+| Drawing workbench | SVG/DXF/drawing JSON import/export, seam overlap, pattern creation, rotate/mirror/undo, local Ollama chat, and reviewed drawing generation/revision before G-code export. |
 | Plotter bring-up | Port/baud discovery, persistent connection, setup, guided measured calibration, manual/switch home, live positions, XY jog, work origin, and saved presets. Corrected travel and the first full plot still need physical verification. |
 | In-app plotting | Reviewed workspace sketches, pen-up tests, continuous XY planner feeding, pen-transition/final Idle checks, accepted-versus-completed progress, pause/resume, and stop/reset. Physical motion quality still needs verification. |
 | Next design tools | Raster tracing, point/stroke editing, and multiple machine-profile management. |

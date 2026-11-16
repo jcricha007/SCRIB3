@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "paper_mount": "top_left_y",
   "name": "John's servo plotter",
   "units": "in",
@@ -17,5 +17,6 @@
   "jog_feed_mm_min": 150.0,
   "x_steps_per_mm": 5.0,
   "y_steps_per_mm": 5.0,
-  "ollama_model": ""
+  "ollama_model": "",
+  "seam_overlap_mm": 0.5
 }

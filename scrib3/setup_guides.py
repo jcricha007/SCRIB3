@@ -6,8 +6,9 @@ from .units import display, setting_display, to_mm
 from .paper_mount import MOUNTS, origin_corner, required_travel
 
 DRAW_FEED = 3000.0
+TRAVEL_FEED = 8890.0  # John's tested 350 in/min rapid-travel baseline.
 JOG_FEED = 150.0
-SMOOTH_SETTINGS = {11: .020, 110: 3000.0, 111: 3000.0, 120: 25.0, 121: 25.0}
+SMOOTH_SETTINGS = {11: .020, 110: TRAVEL_FEED, 111: TRAVEL_FEED, 120: 25.0, 121: 25.0}
 PAPER_SIZES = {
     'US Letter portrait': (215.9, 279.4),
     'US Letter landscape': (279.4, 215.9),

@@ -12,6 +12,8 @@ from scrib3.app import Studio
 from scrib3.calibration_ui import CalibrationWindow
 from scrib3.controller import Controller
 from scrib3.setup_guides import MotionDefaultsWindow, PaperGuideWindow, SMOOTH_SETTINGS
+from scrib3.quality_ui import QualityWindow
+from scrib3.vector_io import read_drawing
 from scrib3.units import to_mm
 from test_controller import FakeSerial
 
@@ -174,6 +176,11 @@ class DesignDesktopTests(TestCase):
             run.invoke()
             self.assertIn('settings changed', error.call_args.args[1])
             self.assertFalse(peer.normal_moves)
+            app.feed.set('60')
+            app.seam_overlap.set('1')
+            run.invoke()
+            self.assertIn('settings changed', error.call_args.args[1])
+            self.assertFalse(peer.normal_moves)
             dialog.destroy(); error.reset_mock()
             app.review()
             dialog = next(w for w in self.root.winfo_children() if isinstance(w, tk.Toplevel) and w.title().startswith('G-code review'))
@@ -238,3 +245,47 @@ class DesignDesktopTests(TestCase):
             self.assertEqual(int(panel.buttons['Y −'].grid_info()['column']), 0)
             self.assertEqual(int(panel.buttons['X −'].grid_info()['row']), 2)
             guide.window.destroy()
+
+    def test_vector_file_dialogs_quality_units_save_and_minimum_layout(self):
+        app = self.app
+        with patch('scrib3.app.messagebox.showerror') as error:
+            app.create_pattern()
+            for extension in ('svg', 'dxf', 'json'):
+                path = Path(self.folder.name) / ('rosette.'+extension)
+                with patch('scrib3.app.filedialog.asksaveasfilename', return_value=str(path)):
+                    app.export_drawing()
+                self.assertEqual(len(read_drawing(path)), 12)
+                with patch('scrib3.app.filedialog.askopenfilename', return_value=str(path)):
+                    app.import_drawing()
+                self.assertEqual(app.source_name.get(), 'rosette')
+                self.assertTrue(all(s[0] == s[-1] for s in app.source))
+            def choose_dxf(**kwargs):
+                kwargs['typevariable'].set('DXF')
+                return str(Path(self.folder.name) / 'chosen-format')
+            with patch('scrib3.app.filedialog.asksaveasfilename', side_effect=choose_dxf):
+                app.export_drawing()
+            self.assertEqual(len(read_drawing(Path(self.folder.name) / 'chosen-format.dxf')), 12)
+            previous = app.source
+            bad = Path(self.folder.name) / 'bad.json'; bad.write_text('{}')
+            with patch('scrib3.app.filedialog.askopenfilename', return_value=str(bad)):
+                app.import_drawing()
+            self.assertTrue(error.called)
+            self.assertEqual(app.source, previous)
+            error.reset_mock()
+            quality = QualityWindow(app); self.windows.append(quality)
+            quality.overlap.set(str(.5/25.4))
+            # An already-open quality window keeps its displayed unit even when
+            # the main workspace switches units before Apply.
+            app.unit_choice.set('Millimeters'); app.change_units()
+            quality.apply()
+            self.assertAlmostEqual(float(app.seam_overlap.get()), .5)
+            self.assertAlmostEqual(presets.load(app.preset_file)['seam_overlap_mm'], .5)
+            quality.overlap.set('99'); quality.apply()
+            self.assertIn('between', quality.status.get())
+            self.assertAlmostEqual(float(app.seam_overlap.get()), .5)
+            app.root.geometry('800x650'); self.root.update()
+            for widget, parent in ((app.quality_button, app.canvas.master), (quality.apply_button, quality.window)):
+                self.assertTrue(widget.winfo_viewable())
+                self.assertLessEqual(widget.winfo_rootx()+widget.winfo_width(), parent.winfo_rootx()+parent.winfo_width())
+                self.assertLessEqual(widget.winfo_rooty()+widget.winfo_height(), parent.winfo_rooty()+parent.winfo_height())
+            self.assertFalse(error.called, error.call_args)

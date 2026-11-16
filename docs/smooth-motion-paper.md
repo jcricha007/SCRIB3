@@ -12,11 +12,11 @@ On **Machine → Smooth motion**, inspect the current/proposed values, then choo
 | --- | --- |
 | Drawing feed | 3,000 mm/min = 118.110 in/min |
 | Manual jog feed | 150 mm/min = 5.906 in/min |
-| X/Y maximum rate, `$110` / `$111` | 3,000 mm/min = 118.110 in/min |
+| X/Y maximum rate, `$110` / `$111` | 8,890 mm/min = 350 in/min |
 | X/Y acceleration, `$120` / `$121` | 25 mm/s² = 0.9843 in/s² |
 | Junction deviation, `$11` | 0.020 mm = 0.0007874 in |
 
-The drawing feed is 10× the previous 300 mm/min default. The axis rate caps rise to 3,000 mm/min so they can support that feed; acceleration and short curves can still reduce actual speed. Existing installations must choose **Apply app + controller** to adopt the new values and save the app feed. Manual jog feed remains 150 mm/min.
+The rapid-travel baseline is John's tested 350 in/min. G0 pen-up travel uses the controller axis-rate limits; drawing uses the separately adjustable Machine → Draw feed (initially 3,000 mm/min). Acceleration and short curves can reduce actual speed. Existing installations must choose **Apply app + controller** to adopt the proposed values and save the app feed. This also sets drawing feed to the displayed 3,000 mm/min; enter your preferred drawing feed afterward and Save preset. Manual jog feed remains 150 mm/min.
 
 This profile preserves steps/mm, direction, travel limits, homing, and pen positions. Existing saved preferences are preserved on upgrade. Fresh/restored bundled presets use the new drawing/jog speeds and a 0.5-second servo settle time. Connecting never applies EEPROM settings. Close old G-code reviews and review again after changing speeds.
 
