@@ -4,21 +4,41 @@ The original Run sketch sender waited for Idle after every XY segment. GRBL ther
 
 Progress distinguishes **accepted** lines (which may still be queued) from motion confirmed at a synchronization boundary. Pause/feed hold and resume remain available during planner backpressure; stop, disconnect, controller errors, and lost status abort without replaying a command. A full planner can delay acknowledgement while moving; an Idle controller with a missing acknowledgement times out after 15 seconds. An individual wait is limited to one hour of unpaused time.
 
-## Apply the starting motion profile
+## Default motion profile
 
-On **Machine → Smooth motion**, inspect the current/proposed values, then choose **Apply app + controller** while connected and Idle. The app verifies controller readback before changing/saving app speeds. **Use app speeds only** leaves the controller unchanged. These are starting values for physical testing, not measured maximum capabilities.
+Drawing and rapid travel default to **350 in/min (8,890 mm/min)**. Connecting
+SCRIB3 automatically checks the controller profile below while Idle. It writes
+only values that differ, then verifies controller readback before enabling
+normal motion. No Smooth motion / Apply step is needed.
 
-| Setting | Starting value |
+| Setting | Default value |
 | --- | --- |
-| Drawing feed | 3,000 mm/min = 118.110 in/min |
+| Drawing feed | 8,890 mm/min = 350 in/min |
 | Manual jog feed | 150 mm/min = 5.906 in/min |
-| X/Y maximum rate, `$110` / `$111` | 3,000 mm/min = 118.110 in/min |
+| X/Y maximum rate, `$110` / `$111` | 8,890 mm/min = 350 in/min |
 | X/Y acceleration, `$120` / `$121` | 25 mm/s² = 0.9843 in/s² |
 | Junction deviation, `$11` | 0.020 mm = 0.0007874 in |
 
-The drawing feed is 10× the previous 300 mm/min default. The axis rate caps rise to 3,000 mm/min so they can support that feed; acceleration and short curves can still reduce actual speed. Existing installations must choose **Apply app + controller** to adopt the new values and save the app feed. Manual jog feed remains 150 mm/min.
+G0 pen-up travel uses the controller axis-rate limits; G1 drawing uses Machine →
+Draw feed. Acceleration, curves, and GRBL overrides can reduce actual speed.
+At this upgrade, older presets adopt the new drawing feed and automatic setup.
+Subsequent **Save preset** actions retain your chosen drawing feed across launches.
+Steps/mm, direction, travel limits, homing, pen positions, and idle delay are
+not part of automatic setup. Fresh/restored presets use a 0.5-second pen settle.
 
-This profile preserves steps/mm, direction, travel limits, homing, and pen positions. Existing saved preferences are preserved on upgrade. Fresh/restored bundled presets use the new drawing/jog speeds and a 0.5-second servo settle time. Connecting never applies EEPROM settings. Close old G-code reviews and review again after changing speeds.
+Automatic setup runs once per connection. If the controller starts in Alarm,
+SCRIB3 waits for the normal operator-requested unlock or switch-home action;
+it does not unlock or home automatically. A failed write, mismatched readback,
+or lost connection leaves normal motion unavailable and reports the problem.
+No failed command is retried. Already-matching EEPROM settings are not rewritten.
+
+**Machine → Smooth motion** remains an optional baseline inspector/reset. To
+keep custom controller rates/acceleration across future connections, clear
+**Apply this controller baseline automatically on connection** there; the
+preference saves and takes effect at the next connection. Normal Setup edits
+are retained for the current session. The explicit **Apply app + controller**
+action still restores the displayed controller baseline and app feeds when
+requested. Open a new G-code review after changing settings or feeds.
 
 Start with a small pen-up drawing and listen/watch for lost steps or binding. The main smoothness correction is removing per-segment stops. Increasing acceleration alone cannot correct that behavior. At 5 steps/mm the commanded increment is 0.2 mm; remaining geometric stair-stepping may require checking driver microstepping and recalibrating the machine. Do not change the calibrated steps/mm merely to hide that effect.
 

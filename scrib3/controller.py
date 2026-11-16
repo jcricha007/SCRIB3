@@ -18,6 +18,7 @@ import serial
 from .firmware import ServoSettings
 from .gcode import pen_command
 from .jobs import PlotJob
+from .motion_profile import SMOOTH_SETTINGS
 
 JOB_IDLE_ACK_TIMEOUT = 15
 
@@ -134,7 +135,7 @@ class SessionFault(OSError):
 
 
 class Controller:
-    def __init__(self, port: str, baud: int = 115200, *, serial_factory=serial.Serial):
+    def __init__(self, port: str, baud: int = 115200, *, serial_factory=serial.Serial, apply_motion_defaults=False):
         if not port or not 1200 <= baud <= 2000000:
             raise ValueError("Select a port and a baud rate between 1200 and 2000000.")
         self.port, self.baud = port, baud
@@ -147,6 +148,7 @@ class Controller:
         self.lock = Lock()
         self.connected = False
         self.busy = True
+        self.motion_defaults_pending = bool(apply_motion_defaults)
         self.fault = ""
         self.state = "Connecting"
         self.status: Status | None = None
@@ -201,6 +203,7 @@ class Controller:
                         state=self.state, fresh=monotonic() - self.status_time < 2,
                         work=work, machine=machine, manual_home=self.manual_home, pins=status.pins if status else "",
                         settings=dict(self.settings), reset_required=self.reset_required, last_result=self.last_result,
+                        motion_defaults_pending=self.motion_defaults_pending,
                         origin_set=self.origin_set, reference=self.reference, job=dict(self.job),
                         report=self.report, log="\n".join(self.log))
 
@@ -212,6 +215,9 @@ class Controller:
                 raise ValueError("Connect to a responding GRBL controller first.")
             if self.busy:
                 raise ValueError("Wait for the current controller operation to finish.")
+            if (self.motion_defaults_pending and kind not in {'refresh', 'settings', 'unlock'}
+                    and not (kind == 'home' and self.state == 'Alarm')):
+                raise ValueError('Wait for automatic motion setup to finish. Resolve Alarm first if needed.')
             self.busy = True
             self.operation_kind = kind
             self.operation_id += 1
@@ -441,6 +447,8 @@ class Controller:
             raise ValueError("Calibration changed. Use Reset / abort, then reconnect before moving.")
         self._fresh_status()
         allowed = {"Idle", "Alarm"} if kind in {"refresh", "home", "settings"} else {"Alarm"} if kind == "unlock" else {"Idle"}
+        if kind == 'settings' and values.get('automatic'):
+            allowed = {'Idle'}
         if self.state not in allowed:
             raise ValueError(f"Cannot {kind} while GRBL reports {self.state}.")
         if kind == "refresh":
@@ -586,6 +594,31 @@ class Controller:
         finally:
             self.job_paused = False
 
+    def _apply_motion_defaults(self):
+        """Initialize once per connection on the serial owner, before jogging/jobs.
+
+        Alarm requires the operator's normal unlock/homing action. No automatic
+        motion, reset, unlock, or retries are issued here.
+        """
+        with self.lock:
+            if (not self.motion_defaults_pending or self.state != 'Idle' or
+                    self.reset_required or self.connected and self.busy):
+                return
+            self.busy = True
+        self._note('Checking automatic controller motion baseline: 350 in/min.')
+        self.events.put(('motion_defaults', 'Applying motion baseline and verifying controller readback…'))
+        try:
+            self._operate('settings', {'values': SMOOTH_SETTINGS, 'automatic': True})
+            if any(abs(self.settings.get(n, float('inf')) - value) > .0005 for n, value in SMOOTH_SETTINGS.items()):
+                raise ValueError('Controller motion baseline readback did not match the requested values.')
+        except ValueError as exc:
+            raise ValueError(f'Automatic motion setup failed: {exc} Reconnect after correcting the controller problem.') from exc
+        with self.lock:
+            self.motion_defaults_pending = False
+            self.busy = False
+        self._note('Automatic motion baseline verified.')
+        self.events.put(('motion_defaults', '350 in/min controller baseline verified. Ready to set home or jog.'))
+
     def _run(self):
         try:
             self.connection = self.factory(self.port, self.baud, timeout=.05, write_timeout=.5)
@@ -598,11 +631,13 @@ class Controller:
             if self.state not in {"Idle", "Alarm"}:
                 raise ValueError(f"Controller reports {self.state}. Connect while idle or in Alarm.")
             self._read_all()
+            self._apply_motion_defaults()
             with self.lock:
                 self.connected, self.busy = True, False
             self.events.put(("connected", f"Connected to {self.port} at {self.baud}."))
             while True:
                 self._pump()
+                self._apply_motion_defaults()
                 try:
                     operation_id, kind, values = self.operations.get_nowait()
                 except Empty:

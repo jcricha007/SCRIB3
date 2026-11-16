@@ -6,7 +6,7 @@ The bundled starting values are X/Y **5.000 steps/mm**, equivalent to **127 step
 
 ## First setup
 
-1. If the controller still shows 250 steps/mm, choose **Apply saved X/Y starting calibration**. This writes only the differing X/Y steps settings. Connection and preset loading never apply settings automatically.
+1. If the controller still shows 250 steps/mm, choose **Apply saved X/Y starting calibration**. This writes only the differing X/Y steps settings. Connection automatically applies the motion speed profile, but never changes steps/mm or other calibration settings.
 2. Wait for readback, then use **Control → Reset / abort**, reconnect, and reopen the guide. Reset can lower the pen to the firmware's original M5 position. Keep its tip clear. Motion stays blocked after a steps/mm change until reset/reconnection; disconnecting with a pending calibration reset also resets the controller.
 3. Select X or Y, a direction with clear travel, and a small requested distance. The default is 0.1 inch / 2.54 mm. Tests are limited to 10 mm at 25 mm/min. **Raise pen + test move** uses the configured lift command and waits at least 0.5 seconds before jogging. **Cancel test** discards the measurement; the regular Cancel jog and Reset / abort controls remain available.
 4. Wait for Idle. Measure the physical travel of the carriage relative to the frame with a ruler or caliper. Enter that positive distance in the units displayed by the guide. It captures its units when opened.

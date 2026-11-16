@@ -147,7 +147,7 @@ def read_svg(path: Path) -> Drawing:
                 raise ValueError("Simplify the SVG to reduce the number of plotting points.")
             for index in range(1, samples + 1):
                 point = segment.point(index / samples)
-                xy = (float(point.x), float(point.y))
+                xy = points[0] if isinstance(segment, Close) else (float(point.x), float(point.y))
                 if xy != points[-1]:
                     points.append(xy)
         if len(points) > 1:

@@ -38,7 +38,7 @@ class DesktopTests(TestCase):
         errors = []
         root.report_callback_exception = lambda *args: errors.append(str(args))
         peer = FakeSerial()
-        with patch.object(controls, 'Controller', side_effect=lambda port, baud: Controller(port, baud, serial_factory=lambda *a, **k: peer)), patch.object(controls, 'detect', return_value=Device('COM7', 115200, 'GRBL')), patch.object(controls.messagebox, 'showerror', side_effect=lambda *a, **k: errors.append(str(a))):
+        with patch.object(controls, 'Controller', side_effect=lambda port, baud, **kw: Controller(port, baud, **kw, serial_factory=lambda *a, **k: peer)), patch.object(controls, 'detect', return_value=Device('COM7', 115200, 'GRBL')), patch.object(controls.messagebox, 'showerror', side_effect=lambda *a, **k: errors.append(str(a))):
             studio = Studio(root, preset_file=preset_file)
             # This control regression uses the original small test sheet.
             studio.paper_width.set(str(148/25.4)); studio.paper_height.set(str(105/25.4))
@@ -63,6 +63,9 @@ class DesktopTests(TestCase):
             assert panel.buttons['Connect'].instate(['disabled'])
             assert '0.3543' in panel.position_text.get()
             assert studio.unit == 'in'
+            assert studio.feed.get() == '350'
+            assert peer.settings[110] == 8890 and peer.settings[111] == 8890
+            assert not panel.session.snapshot()['motion_defaults_pending']
             assert (studio.pen_up.get(), studio.pen_down.get()) == ('M3 S180', 'M3 S70')
             assert panel.buttons['Home'].instate(['disabled'])
             assert panel.buttons['Go to manual home'].instate(['disabled'])
@@ -140,6 +143,7 @@ class DesktopTests(TestCase):
             for w in root.winfo_children():
                 if isinstance(w, tk.Toplevel):
                     w.destroy()
+            studio.auto_motion_defaults.set(False)
             studio.save_preset()
             saved = presets.read(preset_file)
             assert saved['units'] == 'in' and saved['pen_down'] == 'M3 S70'
@@ -163,5 +167,7 @@ class DesktopTests(TestCase):
             assert studio.unit == 'in' and studio.pen_up.get() == 'M3 S180'
             assert studio.pen_down.get() == 'M3 S70'
             assert self.panel.session is None
+            assert not studio.auto_motion_defaults.get()
+            assert abs(float(studio.feed.get()) - 4) < .00001
             assert abs(to_mm(studio.machine_width.get(), studio.unit) - 200) < .00001
             destroy_root()

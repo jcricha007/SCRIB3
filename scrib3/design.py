@@ -25,9 +25,10 @@ def pattern(kind: str, count: int) -> Drawing:
                        500 + 490 * i / points * sin(2 * pi * count * i / points))
                       for i in range(points + 1)),)
     if kind == "Rosette":
-        return tuple(tuple((500 + 280 * cos(2*pi*k/count) + 200 * cos(2*pi*i/96),
+        circles = tuple(tuple((500 + 280 * cos(2*pi*k/count) + 200 * cos(2*pi*i/96),
                             500 + 280 * sin(2*pi*k/count) + 200 * sin(2*pi*i/96))
-                           for i in range(97)) for k in range(count))
+                           for i in range(96)) for k in range(count))
+        return tuple(points + (points[0],) for points in circles)
     raise ValueError("Choose Grid, Spiral, or Rosette.")
 
 

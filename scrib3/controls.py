@@ -154,7 +154,8 @@ class ControlPanel(ttk.Frame):
         if self.scanning or (self.session and self.session.thread.is_alive()):
             return
         try:
-            self.session = Controller(self.studio.port.get(), int(self.studio.baud.get()))
+            self.session = Controller(self.studio.port.get(), int(self.studio.baud.get()),
+                                      apply_motion_defaults=self.studio.auto_motion_defaults.get())
         except ValueError as exc:
             self.error(str(exc))
             return
@@ -320,6 +321,8 @@ class ControlPanel(ttk.Frame):
                 elif kind == "connected":
                     self.connection_text.set(value)
                     self.studio.status.set(value)
+                elif kind == 'motion_defaults':
+                    self.studio.status.set(value)
                 elif kind == "disconnected":
                     self.connection_text.set(value)
                     self.studio.status.set(value)
@@ -345,6 +348,8 @@ class ControlPanel(ttk.Frame):
         state = snap.get("state", "Disconnected")
         needs_reset = snap.get("reset_required", False)
         self.state_text.set("Reset required after calibration" if needs_reset else state + (" · waiting for status" if active and not fresh else ""))
+        if snap.get('connected') and snap.get('motion_defaults_pending') and not needs_reset:
+            self.state_text.set(state + ' · motion setup pending')
         def xy(position):
             return f"X {from_mm(position[0], self.studio.unit):9.4f}   Y {from_mm(position[1], self.studio.unit):9.4f}" if position and fresh else "—"
         self.position_text.set(f"Work {self.studio.unit}: {xy(snap.get('work'))}\nMach {self.studio.unit}: {xy(snap.get('machine'))}")
@@ -365,6 +370,8 @@ class ControlPanel(ttk.Frame):
             elif name == "Cancel jog":
                 enabled = active and snap.get('job', {}).get('state') not in {'running', 'paused'} and (state == "Jog" or snap.get("busy", False))
             elif needs_reset and name not in {"Setup…", "Read GRBL"}:
+                enabled = False
+            elif snap.get('motion_defaults_pending') and name not in {'Setup…', 'Read GRBL', 'Unlock alarm', 'Home'}:
                 enabled = False
             elif name == "Unlock alarm":
                 enabled = ready and state == "Alarm"

@@ -11,11 +11,13 @@ from .assistant_ui import AssistantWindow
 from .jobs import PlotJob
 from .job_ui import JobWindow
 from .setup_guides import MotionDefaultsWindow, PaperGuideWindow
+from .quality_ui import QualityWindow
+from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .demo import sample
-from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths, read_svg
+from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths
 from .gcode import Machine
 from .firmware import SERVO_PROFILE, ServoSettings
 
@@ -63,7 +65,7 @@ class Studio:
         self.optimize = tk.BooleanVar(value=True)
         self.show_travel = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
-        self.status = tk.StringVar(value="Sample loaded. Import an SVG or generate a new drawing.")
+        self.status = tk.StringVar(value="Sample loaded. Import SVG, DXF, or drawing JSON, or create a pattern.")
         self.stats = tk.StringVar()
         self.model = tk.StringVar(value=data["ollama_model"])
         self.machine_width = tk.StringVar(value="" if data["machine_width_mm"] is None else display(data["machine_width_mm"], self.unit))
@@ -72,6 +74,8 @@ class Studio:
         self.pen_up = tk.StringVar(value=data["pen_up"])
         self.pen_down = tk.StringVar(value=data["pen_down"])
         self.settle = tk.StringVar(value=f"{data['settle']:g}")
+        self.seam_overlap = tk.StringVar(value=display(data['seam_overlap_mm'], self.unit))
+        self.auto_motion_defaults = tk.BooleanVar(value=data['auto_motion_defaults'])
         self.port = tk.StringVar()
         self.baud = tk.StringVar(value="115200")
         self.firmware = tk.StringVar(value=data["firmware"])
@@ -138,8 +142,10 @@ class Studio:
         toolbar.pack(fill="x", pady=(0, 7))
         buttons = ttk.Frame(toolbar)
         buttons.pack(fill="x")
-        ttk.Button(buttons, text="Import SVG", command=self.import_svg).pack(side="left")
+        ttk.Button(buttons, text="Import drawing", command=self.import_drawing).pack(side="left")
         ttk.Button(buttons, text="Load sample", command=self.load_sample).pack(side="left", padx=6)
+        self.quality_button = ttk.Button(buttons, text='Plot quality', command=lambda: QualityWindow(self))
+        self.quality_button.pack(side='left')
         ttk.Checkbutton(
             toolbar, text="Show pen-up travel", variable=self.show_travel, command=self.paint,
         ).pack(anchor="w", pady=(5, 0))
@@ -200,7 +206,7 @@ class Studio:
             ttk.Button(transforms, text=operation, padding=(5, 4),
                        command=lambda op=operation: self.transform_design(op)).pack(side="left", fill="x", expand=True)
         ttk.Button(panel, text="Undo design", command=self.undo_design).grid(row=13, column=0, sticky="ew")
-        ttk.Button(panel, text="Export SVG", command=self.export_svg).grid(row=13, column=1, sticky="ew")
+        ttk.Button(panel, text="Export drawing", command=self.export_drawing).grid(row=13, column=1, sticky="ew")
 
     def build_machine_tab(self, panel: ttk.Frame) -> None:
         profile_panel = ttk.Frame(panel)
@@ -249,7 +255,8 @@ class Studio:
         return {"paper_width_mm": self.paper_width, "paper_height_mm": self.paper_height,
                 "margin_mm": self.margin, "machine_width_mm": self.machine_width,
                 "machine_height_mm": self.machine_height, "feed_mm_min": self.feed,
-                "jog_step_mm": self.controls.step, "jog_feed_mm_min": self.controls.rate}
+                "jog_step_mm": self.controls.step, "jog_feed_mm_min": self.controls.rate,
+                "seam_overlap_mm": self.seam_overlap}
 
     def update_unit_labels(self):
         for label, template in self.unit_labels:
@@ -280,7 +287,8 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=3, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=5, name=self.preset_name.get(), units=self.unit,
+                          auto_motion_defaults=self.auto_motion_defaults.get(),
                           paper_mount=self.paper_mount.get(),
                           firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
                           settle=float(self.settle.get()), x_steps_per_mm=self.calibration[100],
@@ -299,6 +307,7 @@ class Studio:
         self.unit = data["units"]
         self.unit_choice.set(UNIT_NAMES[self.unit])
         self.paper_mount.set(data['paper_mount'])
+        self.auto_motion_defaults.set(data['auto_motion_defaults'])
         for name, variable in self.dimension_fields().items():
             variable.set("" if data[name] is None else display(data[name], self.unit))
         for key in ("name", "firmware", "pen_up", "pen_down", "settle"):
@@ -420,16 +429,23 @@ class Studio:
             except ValueError as exc:
                 messagebox.showerror("Undo design", str(exc), parent=self.root)
 
-    def export_svg(self):
+    def export_drawing(self):
         try:
             self.refresh()
-            document = design.svg_document(self.drawing, self.sheet)
-            file = filedialog.asksaveasfilename(parent=self.root, defaultextension=".svg", filetypes=[("SVG drawing", "*.svg")])
+            kind = tk.StringVar(value='SVG')
+            file = filedialog.asksaveasfilename(parent=self.root, defaultextension='',
+                                                filetypes=FORMATS[1:], typevariable=kind)
             if file:
-                Path(file).write_text(document, encoding="utf-8")
-                self.status.set(f"Saved {Path(file).name}.")
+                path = Path(file)
+                if not path.suffix:
+                    extension = dict(FORMATS[1:]).get(kind.get(), '*.svg').removeprefix('*')
+                    path = path.with_suffix(extension)
+                    if path.exists() and not messagebox.askyesno('Replace drawing', f'Replace {path.name}?', parent=self.root):
+                        return
+                write_drawing(path, self.drawing, self.sheet)
+                self.status.set(f"Saved {path.name}.")
         except (OSError, ValueError) as exc:
-            messagebox.showerror("Export SVG", str(exc), parent=self.root)
+            messagebox.showerror("Export drawing", str(exc), parent=self.root)
 
     def load_sample(self) -> None:
         try:
@@ -439,17 +455,17 @@ class Studio:
         else:
             self.status.set("Sample loaded.")
 
-    def import_svg(self) -> None:
-        file = filedialog.askopenfilename(parent=self.root, filetypes=[("SVG drawing", "*.svg")])
+    def import_drawing(self) -> None:
+        file = filedialog.askopenfilename(parent=self.root, filetypes=FORMATS)
         if not file:
             return
         path = Path(file)
         try:
-            self.set_drawing(path.stem, read_svg(path))
+            self.set_drawing(path.stem, read_drawing(path))
         except (OSError, ValueError, ParseError) as exc:
-            messagebox.showerror("Import SVG", str(exc), parent=self.root)
+            messagebox.showerror("Import drawing", str(exc), parent=self.root)
         else:
-            self.status.set("SVG fitted to paper. Filled shapes plot as outlines.")
+            self.status.set(f"{path.suffix[1:].upper()} fitted to paper. Vector outlines only; import does not preserve CAD scale.")
 
     def scan_ports(self) -> None:
         self.controls.find_ports()
@@ -461,6 +477,8 @@ class Studio:
         try:
             if self.controls.session and self.controls.session.snapshot()["reset_required"]:
                 raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
+            if self.controls.session and self.controls.session.snapshot().get('motion_defaults_pending'):
+                raise ValueError('Wait for automatic motion setup to finish before reviewing a job.')
             self.refresh()
             servo = None
             if self.firmware.get() == SERVO_PROFILE:
@@ -470,7 +488,7 @@ class Studio:
             machine = Machine(
                 to_mm(self.machine_width.get(), self.unit), to_mm(self.machine_height.get(), self.unit),
                 to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
-                servo=servo, paper_mount=self.paper_mount.get(),
+                servo=servo, paper_mount=self.paper_mount.get(), seam_overlap=to_mm(self.seam_overlap.get(), self.unit),
             )
             machine = replace(machine, settle=max(.5, machine.settle))
             session = self.controls.session
@@ -502,7 +520,8 @@ class Studio:
                         command=update_preview).pack(anchor='w')
         corner = origin_corner(machine.paper_mount)
         direction = '+Y right, -X down' if machine.paper_mount == 'top_left_y' else '+X right, +Y up'
-        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. Minimum pen settle: 0.5 seconds.',
+        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. Minimum pen settle: 0.5 seconds. '
+                  f'Closed-loop overlap: {display(machine.seam_overlap, self.unit)} {self.unit}.',
                   wraplength=630, style='Muted.TLabel').pack(anchor='w', pady=4)
         actions = ttk.Frame(controls)
         actions.pack(fill='x')
