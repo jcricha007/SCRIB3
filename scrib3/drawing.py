@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import StringIO
-from math import ceil, dist, hypot, isfinite
+from math import dist, hypot, isfinite
 from pathlib import Path
 from xml.etree import ElementTree
 
 from svgelements import Close, Image, Line, Move, SVG, Shape, Text
 from svgelements import Path as SvgPath
+
+from .curves import flatten_segment
 
 Point = tuple[float, float]
 Stroke = tuple[Point, ...]
@@ -116,7 +118,9 @@ def read_svg(path: Path) -> Drawing:
     height = max(box[3] for box in bounds) - min(box[1] for box in bounds)
     if not isfinite(max(width, height)) or max(width, height) <= 0:
         raise ValueError("The SVG has invalid dimensions.")
-    extent = max(width, height)
+    # Relative source tolerance scales with paper fitting. On a 250 mm-wide
+    # drawing, 1e-5 corresponds to approximately 0.0025 mm before rounding.
+    tolerance = max(width, height) * 1e-5
     drawing: list[Stroke] = []
     count = 0
     for shape in shapes:
@@ -135,19 +139,12 @@ def read_svg(path: Path) -> Drawing:
             if not points:
                 points.append(start)
                 count += 1
-            if isinstance(segment, (Line, Close)):
-                samples = 1
-            else:
-                length = segment.length()
-                if not isfinite(length):
-                    raise ValueError("The SVG has invalid curve geometry.")
-                samples = max(8, ceil(min(1, length / extent) * 600))
-            count += samples
+            samples = flatten_segment(segment, tolerance, MAX_POINTS - count)
+            count += len(samples)
             if count > MAX_POINTS:
                 raise ValueError("Simplify the SVG to reduce the number of plotting points.")
-            for index in range(1, samples + 1):
-                point = segment.point(index / samples)
-                xy = points[0] if isinstance(segment, Close) else (float(point.x), float(point.y))
+            for point in samples:
+                xy = points[0] if isinstance(segment, Close) else point
                 if xy != points[-1]:
                     points.append(xy)
         if len(points) > 1:
