@@ -52,6 +52,8 @@ For guided setup, use **Control → Setup → Motion → Guided calibration…**
 
 **Drawing and rapid travel default to 350 in/min (8,890 mm/min).** On connection, SCRIB3 automatically waits for Idle, applies changed X/Y maximum rates (8,890 mm/min), acceleration (25 mm/s²), and junction deviation (0.020 mm), then verifies readback before enabling normal motion. Manual jog remains 150 mm/min. No Smooth motion / Apply step is required. **Machine → Smooth motion** remains available for restoring the baseline or disabling automatic setup when retaining custom controller tuning across connections. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
 
+John's installed **DRV8825** drivers have a provisional **0.60 A** current-limit target. On a module with confirmed **R100** sense resistors, that corresponds to **0.300 V Vref**, set and measured physically on each driver. SCRIB3 cannot apply this current setting. Follow the [hardware baseline and acceptance test](docs/hardware-baseline.md) for the current adjustment, pen-up test, seam comparison, and temperature checks.
+
 Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a 0.5-inch margin, and **top-left home with +Y right and −X down**. For an existing installation, choose **Design → Paper guide → Use John's Letter setup** to apply and save that mapping. The guide also offers Letter/A4 layouts and the original bottom-left mapping. Jog buttons follow the selected mounting. Changing the mounting invalidates paper zero and old reviews. Paper selection never changes machine travel: verify usable X travel down the page and Y travel across it.
 
 ## Make a drawing

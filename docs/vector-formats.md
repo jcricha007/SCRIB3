@@ -80,47 +80,17 @@ and compare overlap 0 and 0.5 mm at the same drawing speed.
 
 ## Warm motors
 
-Warmth alone does not establish overheating; compare a measured motor-case
-temperature with that motor's datasheet. The reported `$1=25` tells GRBL to
-disable steppers shortly after motion stops. This update leaves it unchanged.
-`$1=255` would keep the motors enabled continuously and is not a heat reduction.
-Releasing motors also reduces holding torque; re-establish paper zero if an
-axis is moved by hand while released.
+The later module purchase listing identifies **DRV8825** drivers. The shield's
+"A4988" product title describes compatibility, not the installed driver chip.
+John's **McMaster-Carr 6627T66** motors are rated **0.7 A maximum per phase**.
+The agreed provisional hardware target is **0.60 A per driver**, which requires
+**0.300 V Vref when that module's sense resistors are R100 (0.100 Ω)**.
+The upper module's R100 markings are visible; confirm the lower module too.
 
-John's motor screenshot identifies **McMaster-Carr 6627T66**, a bipolar NEMA 17
-motor rated **0.7 A maximum per phase**, with 9.82 Ω resistance per phase. The
-shield listing is a Xinimark CNC Shield V3 for A4988 plug-in modules. Confirm
-the installed driver modules and read their sense-resistor markings: the
-listing picture does not establish their resistance or current adjustment.
+SCRIB3/GRBL cannot set or measure this analog current limit. Follow the
+[hardware baseline and acceptance test](hardware-baseline.md) to measure and
+adjust each driver, then check motion, circle seams, and temperature. That
+guide supersedes the earlier A4988 calculation. The current target remains
+provisional until the physical tests are recorded.
 
-For an A4988, `I_limit = Vref / (8 × R_sense)`. SCRIB3/GRBL cannot change this
-analog setting on the driver module. Keep the calculated limit at or below
-0.7 A for these motors; a 0.5 A limit is a reasonable lower-current trial if
-it provides enough torque. Measure the existing Vref first rather than
-assuming that its current setting is too high.
-
-| Confirmed sense-resistor marking | Resistance | Vref for 0.5 A trial | Vref for 0.7 A limit |
-| --- | --- | --- | --- |
-| R050 | 0.050 Ω | 0.200 V | 0.280 V |
-| R068 | 0.068 Ω | 0.272 V | 0.381 V |
-| R100 | 0.100 Ω | 0.400 V | 0.560 V |
-
-These are calculated examples, not an identification of the installed boards.
-At the same winding resistance, reducing the limit from 0.7 to 0.5 A would
-reduce copper heating to approximately `(0.5 / 0.7)² = 51%` of its previous
-value. Actual temperatures depend on duty, cooling, and installation. Retest
-alignment and skipped steps at 350 in/min after any current reduction.
-
-Use the driver maker's Vref procedure. Full-step coil current is approximately
-70.7% of the A4988 current-limit value; power-supply current is not coil current.
-Lowering app feed does not itself change the driver's current limit. Cooling
-and removing mechanical binding can also help. Disconnect power before
-changing motor wiring; never unplug a motor from an energized driver. The
-motor listing's 266°F insulation maximum is not a recommended case temperature.
-
-References: [ezdxf paths](https://ezdxf.readthedocs.io/en/stable/path.html),
-[GRBL configuration](https://github.com/gnea/grbl/wiki/Grbl-v1.1-Configuration),
-[Allegro A4988 datasheet, current-limit equation](https://www.allegromicro.com/-/media/files/datasheets/a4988-datasheet.pdf),
-[Pololu A4988 current limiting and motor connections](https://www.pololu.com/product/1182).
-Motor specifications above come from John's supplied McMaster-Carr screenshot;
-the installed driver sense resistance and measured Vref remain to be confirmed.
+Reference: [ezdxf paths](https://ezdxf.readthedocs.io/en/stable/path.html).
