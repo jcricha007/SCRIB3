@@ -63,7 +63,7 @@ class PresetUnitTests(TestCase):
             old.update(schema_version=4, feed_mm_min=3000, x_steps_per_mm=5.2)
             path.write_text(json.dumps(old))
             upgraded = presets.load(path)
-            self.assertEqual(upgraded['schema_version'], 5)
+            self.assertEqual(upgraded['schema_version'], 6)
             self.assertEqual(upgraded['feed_mm_min'], 8890)
             self.assertTrue(upgraded['auto_motion_defaults'])
             self.assertEqual(upgraded['x_steps_per_mm'], 5.2)

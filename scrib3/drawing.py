@@ -64,11 +64,11 @@ def fit_to_sheet(drawing: Drawing, sheet: Sheet) -> Drawing:
     )
 
 
-def order_strokes(drawing: Drawing) -> Drawing:
+def order_strokes(drawing: Drawing, start: Point = (0, 0)) -> Drawing:
     """Choose the closest available endpoint, starting from the paper origin."""
     remaining = list(drawing)
     ordered: list[Stroke] = []
-    position: Point = (0, 0)
+    position: Point = start
     while remaining:
         index, reverse = min(
             ((index, side) for index in range(len(remaining)) for side in (False, True)),
@@ -156,10 +156,10 @@ def read_svg(path: Path) -> Drawing:
     return tuple(drawing)
 
 
-def path_lengths(drawing: Drawing) -> tuple[float, float]:
+def path_lengths(drawing: Drawing, start: Point = (0, 0)) -> tuple[float, float]:
     drawn = 0.0
     travel = 0.0
-    previous: Point = (0, 0)
+    previous: Point = start
     for stroke in drawing:
         travel += dist(previous, stroke[0])
         drawn += sum(hypot(x2 - x1, y2 - y1) for (x1, y1), (x2, y2) in zip(stroke, stroke[1:]))
