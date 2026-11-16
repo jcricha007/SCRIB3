@@ -40,6 +40,9 @@ class DesktopTests(TestCase):
         peer = FakeSerial()
         with patch.object(controls, 'Controller', side_effect=lambda port, baud: Controller(port, baud, serial_factory=lambda *a, **k: peer)), patch.object(controls, 'detect', return_value=Device('COM7', 115200, 'GRBL')), patch.object(controls.messagebox, 'showerror', side_effect=lambda *a, **k: errors.append(str(a))):
             studio = Studio(root, preset_file=preset_file)
+            # This control regression uses the original small test sheet.
+            studio.paper_width.set(str(148/25.4)); studio.paper_height.set(str(105/25.4))
+            studio.margin.set(str(7/25.4)); studio.refresh()
             panel = self.panel = studio.controls
             studio.tabs.select(panel)
             def wait(predicate, timeout=5):

@@ -15,13 +15,15 @@ from .drawing import Sheet
 from .firmware import SERVO_PROFILE
 from .gcode import Machine
 from .units import factor, number
+from .paper_mount import validate_mount
 
 BUILTIN = Path(__file__).with_name("presets") / "john-servo.json"
 LEGACY_FIELDS = {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "settle",
           "paper_width_mm", "paper_height_mm", "margin_mm", "machine_width_mm",
           "machine_height_mm", "feed_mm_min", "jog_step_mm", "jog_feed_mm_min"}
 NEW_DEFAULTS = {"x_steps_per_mm": 5.0, "y_steps_per_mm": 5.0, "ollama_model": ""}
-FIELDS = LEGACY_FIELDS | NEW_DEFAULTS.keys()
+V2_FIELDS = LEGACY_FIELDS | NEW_DEFAULTS.keys()
+FIELDS = V2_FIELDS | {'paper_mount'}
 
 
 def preset_path() -> Path:
@@ -37,18 +39,22 @@ def preset_path() -> Path:
 def validate(data: dict) -> dict:
     if isinstance(data, dict) and type(data.get("schema_version")) is int and data["schema_version"] == 1 and set(data) == LEGACY_FIELDS:
         data = data | NEW_DEFAULTS | {"schema_version": 2}
-    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 2:
+    if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 2 and set(data) == V2_FIELDS:
+        # Keep existing coordinate behavior until the operator selects a mounting.
+        data = data | {'schema_version': 3, 'paper_mount': 'bottom_left_x'}
+    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 3:
         raise ValueError("Unsupported or incomplete machine preset.")
     result = dict(data)
     if not isinstance(result["name"], str) or not result["name"].strip() or len(result["name"]) > 80:
         raise ValueError("Enter a preset name of 1 to 80 characters.")
     result["name"] = result["name"].strip()
     factor(result["units"])
+    validate_mount(result['paper_mount'])
     if result["firmware"] not in {"Manual commands", SERVO_PROFILE}:
         raise ValueError("Unknown preset firmware profile.")
     if not isinstance(result["ollama_model"], str) or len(result["ollama_model"]) > 200:
         raise ValueError("Invalid saved Ollama model name.")
-    for key in FIELDS - {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "ollama_model"}:
+    for key in FIELDS - {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "ollama_model", "paper_mount"}:
         if result[key] is None and key in {"machine_width_mm", "machine_height_mm", "feed_mm_min"}:
             continue
         if type(result[key]) not in {int, float}:

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title desc">
+<title id="title">John's SCRIB3 paper mounting</title>
+<desc id="desc">US Letter landscape. Top-left home at zero. Eleven inches along Y, with positive Y moving right. Eight and a half inches along X, with negative X moving down. Drawings extend into positive Y and negative X. The pen starts raised at the physical paper corner.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#245849"/></marker></defs>
+<rect width="960" height="620" rx="18" fill="#f1f2ec"/>
+<g font-family="DejaVu Sans, Arial, sans-serif" fill="#262a25">
+<text x="38" y="49" font-size="26" font-weight="bold">Your paper and pen starting position</text>
+<text x="38" y="79" font-size="17" fill="#555e54">US Letter • sideways / landscape • top view</text>
+<rect x="100" y="190" width="396" height="306" fill="#fffef8" stroke="#555e54" stroke-width="2"/>
+<rect x="118" y="208" width="360" height="270" fill="none" stroke="#598676" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="100" y="131" font-size="19" font-weight="bold" fill="#245849">HOME (0, 0) · PEN UP</text>
+<path d="M100 142V181" stroke="#245849" stroke-width="2" marker-end="url(#arrow)"/>
+<circle cx="100" cy="190" r="8" fill="#245849" stroke="#fffef8" stroke-width="2"/>
+<path d="M135 170H491" stroke="#245849" stroke-width="2.5" marker-end="url(#arrow)"/>
+<text x="315" y="158" text-anchor="middle" font-size="18" font-weight="bold">+Y moves right</text>
+<path d="M517 195V490" stroke="#245849" stroke-width="2.5" marker-end="url(#arrow)"/>
+<text transform="translate(540 343) rotate(90)" font-size="18" font-weight="bold" text-anchor="middle">−X moves down</text>
+<path d="M100 516H496" stroke="#245849" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="298" y="543" font-size="18" text-anchor="middle">11 inches along Y</text>
+<path d="M77 496V190" stroke="#245849" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text transform="translate(58 343) rotate(-90)" font-size="18" text-anchor="middle">8.5 inches along X</text>
+<text x="298" y="320" font-size="21" text-anchor="middle">Drawing area</text>
+<text x="298" y="350" font-size="17" text-anchor="middle" fill="#555e54">0.5-inch margin</text>
+<text x="298" y="383" font-size="18" text-anchor="middle" font-weight="bold" fill="#245849">X ≤ 0 · Y ≥ 0</text>
+<g transform="translate(590 192)">
+<text font-size="22" font-weight="bold">1. Tape the paper flat</text>
+<text y="31" font-size="17">Long edge left-to-right.</text>
+<text y="101" font-size="22" font-weight="bold">2. Raise and position pen</text>
+<text y="132" font-size="17">Tip at the physical top-left corner.</text>
+<text y="157" font-size="17">Use Set home / Paper XY zero.</text>
+<text y="227" font-size="22" font-weight="bold">3. Review a pen-up test</text>
+<text y="258" font-size="17">Rightward drawing uses +Y.</text>
+<text y="283" font-size="17">Downward drawing uses −X.</text>
+</g>
+<text x="100" y="587" font-size="15" fill="#555e54">Confirm 8.5 in of usable X travel down and 11 in of usable Y travel right from home.</text>
+</g></svg>

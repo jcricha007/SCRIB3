@@ -45,8 +45,9 @@ class JobWindow:
         elif not snap['connected']:
             self.status.set('Disconnected. Reconnect and re-establish paper zero before retrying.')
         else:
-            self.status.set(f"{state.capitalize()} • {job['completed']} / {job['total']} lines completed • {snap['state']}")
-        self.progress.configure(maximum=max(1, job['total']), value=job['completed'])
+            self.status.set(f"{state.capitalize()} • {job['accepted']} / {job['total']} lines accepted • {snap['state']}\n"
+                            f"Motion confirmed through line {job['completed']}; accepted lines may still be queued.")
+        self.progress.configure(maximum=max(1, job['total']), value=job['accepted'])
         self.pause.state(['!disabled'] if self.active and state == 'running' else ['disabled'])
         self.resume.state(['!disabled'] if self.active and state == 'paused' else ['disabled'])
         self.stop.state(['!disabled'] if self.active else ['disabled'])

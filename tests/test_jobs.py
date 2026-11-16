@@ -1,6 +1,7 @@
 from dataclasses import replace
 from time import monotonic, sleep
 from unittest import TestCase
+from unittest.mock import patch
 
 from scrib3.controller import Controller
 from scrib3.drawing import Sheet
@@ -16,6 +17,7 @@ class JobSerial(FakeSerial):
         self.settings[100] = self.settings[101] = 5
         self.block_moves = True
         self.normal_moves = []
+        self.block_ack_at = None
 
     def write(self, data):
         if data in (b'!', b'~'):
@@ -26,6 +28,9 @@ class JobSerial(FakeSerial):
             self.normal_moves.append(data)
             if self.block_moves:
                 self.state = 'Run'
+            if len(self.normal_moves) == self.block_ack_at:
+                self.writes.append(data)
+                return len(data)
         return super().write(data)
 
 
@@ -45,7 +50,7 @@ class JobProtocolTests(TestCase):
 
     def job(self, dry=False, units='mm'):
         snap = self.controller.snapshot()
-        return PlotJob((((1, 1), (3, 1)), ((3, 2), (4, 2))), Sheet(10, 10, 0),
+        return PlotJob((((1, 1), (2, 1), (3, 1), (4, 1)), ((5, 2), (6, 2))), Sheet(10, 10, 0),
                        Machine(10, 10, 60, 'M3 S180', 'M3 S70', .5, ServoSettings(1000, 0, 0, 100)),
                        units, dry, tuple(sorted(snap['settings'].items())), snap['reference'])
 
@@ -57,15 +62,18 @@ class JobProtocolTests(TestCase):
             sleep(.02)
         eventually(lambda: not self.controller.snapshot()['busy'])
 
-    def test_stream_waits_for_motion_completion_and_final_pen_up(self):
+    def test_segments_fill_planner_before_idle_but_pen_lift_waits_for_motion(self):
         job = self.job()
         self.controller.request('run_job', job=job)
-        eventually(lambda: self.peer.state == 'Run')
+        eventually(lambda: len(self.peer.normal_moves) == 3)
         count = len(self.peer.writes)
         sleep(.35)
         self.assertTrue(self.controller.snapshot()['busy'])
         self.assertTrue(all(w == b'?' for w in self.peer.writes[count:]))
-        self.assertEqual(len(self.peer.normal_moves), 1)
+        self.assertEqual(len(self.peer.normal_moves), 3)
+        snap = self.controller.snapshot()
+        self.assertGreater(snap['job']['accepted'], snap['job']['completed'])
+        self.assertEqual(self.peer.writes.count(b'M3 S180.000\n'), 1)
         self.finish_moves()
         snap = self.controller.snapshot()
         self.assertEqual(snap['job']['state'], 'completed')
@@ -73,6 +81,73 @@ class JobProtocolTests(TestCase):
         self.assertEqual(snap['state'], 'Idle')
         commands = [w for w in self.peer.writes if w != b'?']
         self.assertEqual(commands[-2:], [b'M3 S180.000\n', b'G4 P0.500\n'])
+
+    def test_full_planner_delayed_ack_blocks_following_lines_without_retries(self):
+        self.peer.block_ack_at = 2
+        self.controller.request('run_job', job=self.job())
+        eventually(lambda: len(self.peer.normal_moves) == 2)
+        sleep(.35)
+        self.assertEqual(len(self.peer.normal_moves), 2)
+        self.peer.emit('ok')
+        eventually(lambda: len(self.peer.normal_moves) == 3)
+        self.finish_moves()
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'completed')
+        self.assertEqual(len(self.peer.normal_moves), 4)
+
+    def test_alarm_during_queued_motion_aborts_before_pen_transition(self):
+        self.controller.request('run_job', job=self.job())
+        eventually(lambda: len(self.peer.normal_moves) == 3)
+        self.peer.state = 'Alarm'
+        eventually(lambda: not self.controller.thread.is_alive())
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'failed')
+        self.assertEqual(self.peer.writes.count(b'M3 S180.000\n'), 1)
+        self.assertIn(b'\x18', self.peer.writes)
+
+    def test_pause_during_full_planner_wait_keeps_next_segment_unsent(self):
+        self.peer.block_ack_at = 2
+        self.controller.request('run_job', job=self.job())
+        eventually(lambda: len(self.peer.normal_moves) == 2)
+        self.controller.pause_job()
+        eventually(lambda: self.peer.state == 'Hold:0')
+        self.peer.emit('ok')
+        sleep(.3)
+        self.assertEqual(len(self.peer.normal_moves), 2)
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'paused')
+        self.controller.resume_job()
+        eventually(lambda: len(self.peer.normal_moves) == 3)
+        self.finish_moves()
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'completed')
+
+    def test_disconnect_with_full_planner_aborts_queued_motion(self):
+        self.peer.block_ack_at = 2
+        self.controller.request('run_job', job=self.job())
+        eventually(lambda: len(self.peer.normal_moves) == 2)
+        self.controller.close()
+        eventually(lambda: not self.controller.thread.is_alive())
+        self.assertEqual(len(self.peer.normal_moves), 2)
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'stopped')
+        self.assertIn(b'\x18', self.peer.writes)
+        self.assertFalse(self.controller.snapshot()['origin_set'])
+
+    def test_z_pen_lift_waits_until_queued_xy_segments_finish(self):
+        job = replace(self.job(), machine=Machine(10, 10, 60, 'G0 Z2', 'G1 Z0 F30', .5))
+        self.controller.request('run_job', job=job)
+        eventually(lambda: len(self.peer.normal_moves) == 3)
+        self.assertEqual(self.peer.writes.count(b'G0 Z2.000\n'), 1)
+        self.finish_moves()
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'completed')
+        self.assertEqual(self.peer.writes.count(b'G0 Z2.000\n'), 3)
+
+    def test_missing_ack_after_motion_ends_aborts_without_waiting_an_hour(self):
+        self.peer.block_ack_at = 1
+        with patch('scrib3.controller.JOB_IDLE_ACK_TIMEOUT', .2):
+            self.controller.request('run_job', job=self.job())
+            eventually(lambda: len(self.peer.normal_moves) == 1)
+            self.peer.state = 'Idle'
+            eventually(lambda: not self.controller.thread.is_alive())
+        self.assertIn('did not acknowledge', self.controller.snapshot()['fault'])
+        self.assertEqual(len(self.peer.normal_moves), 1)
+        self.assertIn(b'\x18', self.peer.writes)
 
     def test_pause_resume_and_stop_use_realtime_controls_without_new_lines(self):
         self.controller.request('run_job', job=self.job())
@@ -101,7 +176,7 @@ class JobProtocolTests(TestCase):
         eventually(lambda: not self.controller.thread.is_alive())
         self.assertEqual(self.controller.snapshot()['job']['state'], 'failed')
         self.assertEqual(self.peer.writes.count(command.encode()+b'\n'), 1)
-        self.assertFalse(any(line.startswith(b'G0 X3.') for line in self.peer.writes))
+        self.assertFalse(any(line.startswith(b'G1 X3.') for line in self.peer.writes))
         self.assertIn(b'\x18', self.peer.writes)
 
     def test_stale_review_or_missing_origin_does_not_send_a_program(self):

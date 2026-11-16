@@ -7,6 +7,7 @@ from math import isfinite
 from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
 from .units import factor
+from .paper_mount import machine_point, required_travel, validate_mount
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
 Z_COMMAND = re.compile(rf"(G[01])[ \t]*Z({NUMBER})(?:[ \t]*F({NUMBER}))?", re.ASCII)
@@ -47,8 +48,10 @@ class Machine:
     down: str
     settle: float = 0
     servo: ServoSettings | None = None
+    paper_mount: str = 'bottom_left_x'
 
     def __post_init__(self) -> None:
+        validate_mount(self.paper_mount)
         if not all(0 < value <= 10_000 for value in (self.width, self.height)):
             raise ValueError("Enter the plotter's positive usable X and Y travel in mm.")
         if not 0.001 <= self.feed <= 100_000:
@@ -78,7 +81,8 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
 
     if not drawing:
         raise ValueError("Create or import a drawing first.")
-    if sheet.width > machine.width or sheet.height > machine.height:
+    x_travel, y_travel = required_travel(sheet.width, sheet.height, machine.paper_mount)
+    if x_travel > machine.width or y_travel > machine.height:
         raise ValueError("The paper does not fit the configured usable X/Y travel.")
     lines = ["(SCRIB3 pen-up test)" if dry_run else "(SCRIB3 pen plotter job)", f"{'G20' if units == 'in' else 'G21'} G90 G94 G17 G54 G49"]
 
@@ -100,8 +104,9 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
         for x, y in stroke:
             if not (0 <= x <= sheet.width + 1e-8 and 0 <= y <= sheet.height + 1e-8):
                 raise ValueError("A plotting point is outside the paper.")
-            point = (float(coordinate(x)) * scale, float(coordinate(y)) * scale)
-            if point[0] > machine.width + 1e-9 or point[1] > machine.height + 1e-9:
+            mx, my = machine_point(x, y, sheet.height, machine.paper_mount)
+            point = (float(coordinate(mx)) * scale, float(coordinate(my)) * scale)
+            if abs(point[0]) > machine.width + 1e-9 or abs(point[1]) > machine.height + 1e-9:
                 raise ValueError("A rounded plotting point is outside usable X/Y travel.")
             if not points or point != points[-1]:
                 points.append(point)

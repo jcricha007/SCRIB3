@@ -10,6 +10,8 @@ from . import design, presets
 from .assistant_ui import AssistantWindow
 from .jobs import PlotJob
 from .job_ui import JobWindow
+from .setup_guides import MotionDefaultsWindow, PaperGuideWindow
+from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .demo import sample
@@ -45,6 +47,7 @@ class Studio:
         data = self.initial_preset
         self.unit = data["units"]
         self.unit_choice = tk.StringVar(value=UNIT_NAMES[self.unit])
+        self.paper_mount = tk.StringVar(value=data['paper_mount'])
         self.unit_labels = []
         self.preset_name = tk.StringVar(value=data["name"])
         self.source: Drawing = sample()
@@ -75,6 +78,7 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
+        self.paper_mount.trace_add('write', self.mount_changed)
         root.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.refresh()
         if load_warning:
@@ -163,7 +167,10 @@ class Studio:
         self.tabs = tabs
 
     def build_drawing_tab(self, panel: ttk.Frame) -> None:
-        ttk.Label(panel, text="Paper and toolpath", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
+        title = ttk.Frame(panel)
+        title.grid(row=0, columnspan=2, sticky='ew')
+        ttk.Label(title, text="Paper and toolpath", style="Title.TLabel").pack(side='left')
+        ttk.Button(title, text='Paper guide', padding=(5, 2), command=lambda: PaperGuideWindow(self)).pack(side='right')
         self.field(panel, 1, "Paper width ({unit})", self.paper_width)
         self.field(panel, 2, "Paper height ({unit})", self.paper_height)
         self.field(panel, 3, "Margin ({unit})", self.margin)
@@ -217,8 +224,13 @@ class Studio:
             self.field(panel, row, label, variable)
         ttk.Label(panel, text="Z pen commands use mm; servo S values are unitless.",
                   style="Muted.TLabel", wraplength=320).grid(row=7, columnspan=2, sticky="w", pady=(6, 0))
-        ttk.Button(panel, text="Use controller X/Y travel", command=lambda: self.controls.copy_travel()).grid(
-            row=8, columnspan=2, sticky="ew", pady=(8, 4))
+        motion_actions = ttk.Frame(panel)
+        motion_actions.grid(row=8, columnspan=2, sticky='ew', pady=(8, 4))
+        ttk.Button(motion_actions, text="Use controller travel", padding=(5, 6),
+                   command=lambda: self.controls.copy_travel()).pack(side='left', fill='x', expand=True)
+        self.motion_defaults_button = ttk.Button(motion_actions, text='Smooth motion', padding=(5, 6),
+                                                command=lambda: MotionDefaultsWindow(self))
+        self.motion_defaults_button.pack(side='right', fill='x', expand=True, padx=(5, 0))
         ttk.Separator(panel).grid(row=9, columnspan=2, sticky="ew", pady=6)
         self.field(panel, 10, "Preset name", self.preset_name)
         ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=11, column=0, sticky="ew", pady=4)
@@ -268,21 +280,25 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=2, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=3, name=self.preset_name.get(), units=self.unit,
+                          paper_mount=self.paper_mount.get(),
                           firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
                           settle=float(self.settle.get()), x_steps_per_mm=self.calibration[100],
                           y_steps_per_mm=self.calibration[101], ollama_model=self.model.get())
             presets.save(self.preset_file, values)
         except (OSError, ValueError) as exc:
             messagebox.showerror("Save preset", str(exc), parent=self.root)
+            return False
         else:
             self.status.set(f"Saved {values['name']}. These settings will reload next time.")
+            return True
 
     def restore_preset(self):
         data = presets.builtin()
         self.calibration = {100: data["x_steps_per_mm"], 101: data["y_steps_per_mm"]}
         self.unit = data["units"]
         self.unit_choice.set(UNIT_NAMES[self.unit])
+        self.paper_mount.set(data['paper_mount'])
         for name, variable in self.dimension_fields().items():
             variable.set("" if data[name] is None else display(data[name], self.unit))
         for key in ("name", "firmware", "pen_up", "pen_down", "settle"):
@@ -329,15 +345,23 @@ class Studio:
         if margin:
             canvas.create_rectangle(left + margin, top + margin, right - margin, bottom - margin,
                                     outline="#cbd0c2", dash=(3, 4))
-        previous = (left, bottom)
+        origin_y = top if self.paper_mount.get() == 'top_left_y' else bottom
+        previous = (left, origin_y)
         for stroke in self.drawing:
             points = tuple(coord for x, y in stroke for coord in (left + x * scale, bottom - y * scale))
             if self.show_travel.get():
                 canvas.create_line(*previous, *points[:2], fill=TEAL, dash=(3, 4))
             canvas.create_line(*points, fill=INK, width=1.4, capstyle="round", joinstyle="round")
             previous = points[-2:]
-        canvas.create_oval(left - 3, bottom - 3, left + 3, bottom + 3, fill=GREEN, outline="")
-        canvas.create_text(left + 8, bottom + 8, text="0, 0", anchor="nw", fill=MUTED, font=(self.ui_font, 9))
+        canvas.create_oval(left - 3, origin_y - 3, left + 3, origin_y + 3, fill=GREEN, outline="")
+        canvas.create_text(left + 8, origin_y - 8 if origin_y == top else origin_y + 8,
+                           text="0, 0", anchor="sw" if origin_y == top else "nw", fill=MUTED, font=(self.ui_font, 9))
+
+    def mount_changed(self, *_):
+        self.controls.update_axes()
+        if self.controls.session:
+            self.controls.session.invalidate_paper_origin()
+        self.paint()
 
     def apply_layout(self) -> None:
         try:
@@ -446,7 +470,7 @@ class Studio:
             machine = Machine(
                 to_mm(self.machine_width.get(), self.unit), to_mm(self.machine_height.get(), self.unit),
                 to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
-                servo=servo,
+                servo=servo, paper_mount=self.paper_mount.get(),
             )
             machine = replace(machine, settle=max(.5, machine.settle))
             session = self.controls.session
@@ -476,13 +500,15 @@ class Studio:
             dialog.output.configure(state='disabled')
         ttk.Checkbutton(controls, text='Pen-up test (uncheck to draw with ink)', variable=dry_run,
                         command=update_preview).pack(anchor='w')
-        ttk.Label(controls, text='Set paper XY zero at the lower-left corner first. Minimum pen settle: 0.5 seconds.',
+        corner = origin_corner(machine.paper_mount)
+        direction = '+Y right, -X down' if machine.paper_mount == 'top_left_y' else '+X right, +Y up'
+        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. Minimum pen settle: 0.5 seconds.',
                   wraplength=630, style='Muted.TLabel').pack(anchor='w', pady=4)
         actions = ttk.Frame(controls)
         actions.pack(fill='x')
         def signature():
             return (self.revision, self.unit, self.firmware.get(), self.pen_up.get(), self.pen_down.get(),
-                    self.settle.get(), self.optimize.get(), *(v.get() for v in self.dimension_fields().values()))
+                    self.settle.get(), self.paper_mount.get(), self.optimize.get(), *(v.get() for v in self.dimension_fields().values()))
         reviewed = signature()
         def run():
             try:

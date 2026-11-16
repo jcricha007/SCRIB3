@@ -90,7 +90,13 @@ class ControlPanel(ttk.Frame):
                 button.grid(row=row, column=column, sticky="ew", padx=(0, 3), pady=1)
                 self.buttons[name] = button
         self.update_units()
+        self.update_axes()
         studio.root.after(80, self.poll)
+
+    def update_axes(self):
+        names = ('X +', 'Y −', 'Y +', 'X −') if self.studio.paper_mount.get() == 'top_left_y' else ('Y +', 'X −', 'X +', 'Y −')
+        for name, (row, column) in zip(names, ((0, 1), (1, 0), (1, 2), (2, 1))):
+            self.buttons[name].grid_configure(row=row, column=column)
 
     def update_units(self):
         unit = self.studio.unit
