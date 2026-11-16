@@ -109,7 +109,7 @@ class DesignDesktopTests(TestCase):
 
     def test_calibration_migration_readback_reset_measurement_and_axis_specific_apply(self):
         peer = FakeSerial()
-        with patch.object(controls, 'Controller', side_effect=lambda *a: Controller(*a, serial_factory=lambda *a, **k: peer)):
+        with patch.object(controls, 'Controller', side_effect=lambda *a, **kw: Controller(*a, **kw, serial_factory=lambda *a, **k: peer)):
             panel = self.app.controls
             self.app.port.set('COM7'); panel.connect()
             self.wait(lambda: panel.session.snapshot()['connected'])
@@ -151,7 +151,7 @@ class DesignDesktopTests(TestCase):
     def test_review_requires_current_design_and_runs_pen_up_test(self):
         from test_jobs import JobSerial
         peer = JobSerial(); peer.block_moves = False
-        with patch.object(controls, 'Controller', side_effect=lambda *a: Controller(*a, serial_factory=lambda *a, **k: peer)), patch('scrib3.app.messagebox.showerror') as error:
+        with patch.object(controls, 'Controller', side_effect=lambda *a, **kw: Controller(*a, **kw, serial_factory=lambda *a, **k: peer)), patch('scrib3.app.messagebox.showerror') as error:
             app, panel = self.app, self.app.controls
             app.port.set('COM7'); panel.connect()
             self.wait(lambda: panel.session.snapshot()['connected'])
@@ -197,7 +197,7 @@ class DesignDesktopTests(TestCase):
 
     def test_smooth_motion_apply_readback_preserves_calibration_and_paper_orientation(self):
         peer = FakeSerial()
-        with patch.object(controls, 'Controller', side_effect=lambda *a: Controller(*a, serial_factory=lambda *a, **k: peer)):
+        with patch.object(controls, 'Controller', side_effect=lambda *a, **kw: Controller(*a, **kw, serial_factory=lambda *a, **k: peer)):
             app, panel = self.app, self.app.controls
             app.port.set('COM7'); panel.connect()
             self.wait(lambda: panel.session.snapshot()['connected'])
@@ -210,10 +210,14 @@ class DesignDesktopTests(TestCase):
             self.assertEqual({n: v for n, v in peer.settings.items() if n not in SMOOTH_SETTINGS},
                              {n: v for n, v in before.items() if n not in SMOOTH_SETTINGS})
             # Allow inch-display rounding, well below exported feed precision.
-            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 3000, delta=1e-5)
+            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 8890, delta=1e-5)
             self.assertAlmostEqual(to_mm(panel.rate.get(), app.unit), 150, places=6)
-            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 3000, delta=1e-5)
+            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 8890, delta=1e-5)
             self.assertFalse(panel.session.snapshot()['reset_required'])
+            app.auto_motion_defaults.set(False)
+            motion.save_automatic()
+            self.assertFalse(presets.load(app.preset_file)['auto_motion_defaults'])
+            self.assertIn('next connection', motion.status.get())
             app.tabs.select(1); self.root.geometry('800x650'); self.root.update()
             button = app.motion_defaults_button
             self.assertTrue(button.winfo_viewable())

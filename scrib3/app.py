@@ -75,6 +75,7 @@ class Studio:
         self.pen_down = tk.StringVar(value=data["pen_down"])
         self.settle = tk.StringVar(value=f"{data['settle']:g}")
         self.seam_overlap = tk.StringVar(value=display(data['seam_overlap_mm'], self.unit))
+        self.auto_motion_defaults = tk.BooleanVar(value=data['auto_motion_defaults'])
         self.port = tk.StringVar()
         self.baud = tk.StringVar(value="115200")
         self.firmware = tk.StringVar(value=data["firmware"])
@@ -286,7 +287,8 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=4, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=5, name=self.preset_name.get(), units=self.unit,
+                          auto_motion_defaults=self.auto_motion_defaults.get(),
                           paper_mount=self.paper_mount.get(),
                           firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
                           settle=float(self.settle.get()), x_steps_per_mm=self.calibration[100],
@@ -305,6 +307,7 @@ class Studio:
         self.unit = data["units"]
         self.unit_choice.set(UNIT_NAMES[self.unit])
         self.paper_mount.set(data['paper_mount'])
+        self.auto_motion_defaults.set(data['auto_motion_defaults'])
         for name, variable in self.dimension_fields().items():
             variable.set("" if data[name] is None else display(data[name], self.unit))
         for key in ("name", "firmware", "pen_up", "pen_down", "settle"):
@@ -474,6 +477,8 @@ class Studio:
         try:
             if self.controls.session and self.controls.session.snapshot()["reset_required"]:
                 raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
+            if self.controls.session and self.controls.session.snapshot().get('motion_defaults_pending'):
+                raise ValueError('Wait for automatic motion setup to finish before reviewing a job.')
             self.refresh()
             servo = None
             if self.firmware.get() == SERVO_PROFILE:

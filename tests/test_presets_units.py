@@ -20,7 +20,11 @@ class PresetUnitTests(TestCase):
         self.assertIsNone(data['machine_width_mm'])
         self.assertEqual((data['paper_width_mm'], data['paper_height_mm'], data['margin_mm']), (279.4, 215.9, 12.7))
         self.assertEqual(data['paper_mount'], 'top_left_y')
-        self.assertEqual((data['feed_mm_min'], data['jog_feed_mm_min']), (3000, 150))
+        self.assertEqual((data['feed_mm_min'], data['jog_feed_mm_min']), (8890, 150))
+        self.assertTrue(data['auto_motion_defaults'])
+        program = generate_gcode((((0, 0), (25.4, 25.4)),), Sheet(50.8, 50.8, 0),
+                                 Machine(50.8, 50.8, data['feed_mm_min'], data['pen_up'], data['pen_down']), 'in')
+        self.assertIn('F350.00000', program)
         self.assertNotIn('manual_home', data)
         servo = ServoSettings(1000, 0, 0, 100)
         self.assertEqual((servo.timer_count(180), servo.timer_count(70)), (13, 24))
@@ -42,7 +46,8 @@ class PresetUnitTests(TestCase):
     def test_corrupt_or_motion_bearing_presets_are_rejected(self):
         for changes in ({'pen_up': '$H'}, {'pen_down': 'M3 S70\nG0 X100'},
                         {'units': 'degrees'}, {'feed_mm_min': 0}, {'settle': float('nan')},
-                        {'schema_version': 999}, {'manual_home': [0, 0]}, {'jog_step_mm': 0}):
+                        {'schema_version': 999}, {'manual_home': [0, 0]}, {'jog_step_mm': 0},
+                        {'auto_motion_defaults': 1}, {'auto_motion_defaults': 'false'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 presets.validate(presets.builtin() | changes)
         with TemporaryDirectory() as folder:
@@ -50,6 +55,21 @@ class PresetUnitTests(TestCase):
             path.write_text('{')
             with self.assertRaises(ValueError):
                 presets.load(path)
+
+    def test_upgrade_adopts_350_feed_once_and_new_custom_preferences_survive(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'preset.json'
+            old = {k: v for k, v in presets.builtin().items() if k in presets.V4_FIELDS}
+            old.update(schema_version=4, feed_mm_min=3000, x_steps_per_mm=5.2)
+            path.write_text(json.dumps(old))
+            upgraded = presets.load(path)
+            self.assertEqual(upgraded['schema_version'], 5)
+            self.assertEqual(upgraded['feed_mm_min'], 8890)
+            self.assertTrue(upgraded['auto_motion_defaults'])
+            self.assertEqual(upgraded['x_steps_per_mm'], 5.2)
+            upgraded.update(feed_mm_min=6350, auto_motion_defaults=False)
+            presets.save(path, upgraded)
+            self.assertEqual(presets.load(path), upgraded)
 
     def test_inches_jog_is_converted_once_and_servo_values_are_not_scaled(self):
         self.assertEqual(jog_command('X', to_mm(.1, 'in'), to_mm(4, 'in')),

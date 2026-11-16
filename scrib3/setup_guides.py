@@ -4,11 +4,8 @@ from tkinter import ttk
 
 from .units import display, setting_display, to_mm
 from .paper_mount import MOUNTS, origin_corner, required_travel
+from .motion_profile import DRAW_FEED, TRAVEL_FEED, JOG_FEED, SMOOTH_SETTINGS
 
-DRAW_FEED = 3000.0
-TRAVEL_FEED = 8890.0  # John's tested 350 in/min rapid-travel baseline.
-JOG_FEED = 150.0
-SMOOTH_SETTINGS = {11: .020, 110: TRAVEL_FEED, 111: TRAVEL_FEED, 120: 25.0, 121: 25.0}
 PAPER_SIZES = {
     'US Letter portrait': (215.9, 279.4),
     'US Letter landscape': (279.4, 215.9),
@@ -23,16 +20,16 @@ class MotionDefaultsWindow:
         self.pending = None
         self.window = tk.Toplevel(studio.root)
         self.window.title('SCRIB3 | Smooth motion starting values')
-        self.window.geometry('610x470')
-        self.window.minsize(610, 470)
+        self.window.geometry('610x510')
+        self.window.minsize(610, 510)
         self.window.protocol('WM_DELETE_WINDOW', self.close)
         panel = ttk.Frame(self.window, padding=16)
         panel.pack(fill='both', expand=True)
         ttk.Label(panel, text='Smooth motion starting values', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(panel, text='The runner keeps XY segments in the motion planner. Check the updated run speed with a pen-up test on your machine.',
+        ttk.Label(panel, text='Drawing and travel default to 350 in/min. The controller baseline is checked automatically on connection, before normal motion is enabled.',
                   wraplength=570).pack(anchor='w', pady=8)
         unit = self.unit = studio.unit
-        ttk.Label(panel, text=f'Draw: {display(DRAW_FEED, unit)} {unit}/min   |   Jog: {display(JOG_FEED, unit)} {unit}/min',
+        ttk.Label(panel, text=f'Draw: {DRAW_FEED / (25.4 if unit == "in" else 1):.3f} {unit}/min   |   Jog: {JOG_FEED / (25.4 if unit == "in" else 1):.3f} {unit}/min',
                   wraplength=570).pack(anchor='w', pady=6)
         grid = ttk.Frame(panel)
         grid.pack(fill='x', pady=4)
@@ -52,7 +49,9 @@ class MotionDefaultsWindow:
                     self.current_labels[number] = label
         ttk.Label(panel, text='Apply changes only speed, acceleration, and junction deviation. Your steps/mm, axis direction, travel limits, home, and pen positions stay as configured.',
                   wraplength=570, style='Muted.TLabel').pack(anchor='w', pady=8)
-        self.status = tk.StringVar(value='Controller writes occur only when you choose Apply app + controller.')
+        ttk.Checkbutton(panel, text='Apply this controller baseline automatically on connection',
+                        variable=studio.auto_motion_defaults, command=self.save_automatic).pack(anchor='w', pady=4)
+        self.status = tk.StringVar(value='Automatic setup waits for Idle, writes changed values, and verifies readback. Disable it to retain custom controller tuning across connections.')
         ttk.Label(panel, textvariable=self.status, wraplength=570).pack(anchor='w', pady=8)
         actions = ttk.Frame(panel)
         actions.pack(side='bottom', fill='x')
@@ -61,6 +60,11 @@ class MotionDefaultsWindow:
         self.apply_button = ttk.Button(actions, text='Apply app + controller', command=self.apply_controller)
         self.apply_button.pack(side='right')
         self.after_id = self.window.after(80, self.poll)
+
+    def save_automatic(self):
+        saved = self.studio.save_preset()
+        self.status.set(('Preference saved. ' if saved else 'Preference changed but could not be saved. ')
+                        + 'It takes effect on the next connection.')
 
     def apply_app(self):
         if self.pending:

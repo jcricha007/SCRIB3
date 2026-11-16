@@ -16,6 +16,7 @@ from .firmware import SERVO_PROFILE
 from .gcode import Machine
 from .units import factor, number
 from .paper_mount import validate_mount
+from .motion_profile import DRAW_FEED
 
 BUILTIN = Path(__file__).with_name("presets") / "john-servo.json"
 LEGACY_FIELDS = {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "settle",
@@ -24,7 +25,8 @@ LEGACY_FIELDS = {"schema_version", "name", "units", "firmware", "pen_up", "pen_d
 NEW_DEFAULTS = {"x_steps_per_mm": 5.0, "y_steps_per_mm": 5.0, "ollama_model": ""}
 V2_FIELDS = LEGACY_FIELDS | NEW_DEFAULTS.keys()
 V3_FIELDS = V2_FIELDS | {'paper_mount'}
-FIELDS = V3_FIELDS | {'seam_overlap_mm'}
+V4_FIELDS = V3_FIELDS | {'seam_overlap_mm'}
+FIELDS = V4_FIELDS | {'auto_motion_defaults'}
 
 
 def preset_path() -> Path:
@@ -45,7 +47,11 @@ def validate(data: dict) -> dict:
         data = data | {'schema_version': 3, 'paper_mount': 'bottom_left_x'}
     if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 3 and set(data) == V3_FIELDS:
         data = data | {'schema_version': 4, 'seam_overlap_mm': 0.0}
-    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 4:
+    if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 4 and set(data) == V4_FIELDS:
+        # Adopt the requested baseline on upgrade. Subsequent schema-5 saves
+        # retain the operator's feed and automatic-setup preference.
+        data = data | {'schema_version': 5, 'feed_mm_min': DRAW_FEED, 'auto_motion_defaults': True}
+    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 5:
         raise ValueError("Unsupported or incomplete machine preset.")
     result = dict(data)
     if not isinstance(result["name"], str) or not result["name"].strip() or len(result["name"]) > 80:
@@ -57,7 +63,9 @@ def validate(data: dict) -> dict:
         raise ValueError("Unknown preset firmware profile.")
     if not isinstance(result["ollama_model"], str) or len(result["ollama_model"]) > 200:
         raise ValueError("Invalid saved Ollama model name.")
-    for key in FIELDS - {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "ollama_model", "paper_mount"}:
+    if type(result['auto_motion_defaults']) is not bool:
+        raise ValueError('Automatic motion setup must be true or false.')
+    for key in FIELDS - {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "ollama_model", "paper_mount", "auto_motion_defaults"}:
         if result[key] is None and key in {"machine_width_mm", "machine_height_mm", "feed_mm_min"}:
             continue
         if type(result[key]) not in {int, float}:

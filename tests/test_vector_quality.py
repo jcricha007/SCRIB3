@@ -67,15 +67,15 @@ class VectorQualityTests(TestCase):
             with self.assertRaises(ValueError):
                 Machine(100, 100, 60, 'M3 S180', 'M3 S70', seam_overlap=value)
 
-    def test_existing_preset_migrates_without_changing_feed_or_enabling_overlap(self):
+    def test_existing_preset_adopts_requested_feed_without_enabling_overlap(self):
         previous = {k: v for k, v in presets.builtin().items() if k in presets.V3_FIELDS}
-        previous.update(schema_version=3, feed_mm_min=8890)
+        previous.update(schema_version=3, feed_mm_min=3000)
         migrated = presets.validate(previous)
         self.assertEqual(migrated['feed_mm_min'], 8890)
         self.assertEqual(migrated['seam_overlap_mm'], 0)
         self.assertEqual(presets.builtin()['seam_overlap_mm'], .5)
         self.assertEqual((SMOOTH_SETTINGS[110], SMOOTH_SETTINGS[111]), (8890, 8890))
-        self.assertEqual((SMOOTH_SETTINGS[120], SMOOTH_SETTINGS[121], DRAW_FEED), (25, 25, 3000))
+        self.assertEqual((SMOOTH_SETTINGS[120], SMOOTH_SETTINGS[121], DRAW_FEED), (25, 25, 8890))
         self.assertNotIn(1, SMOOTH_SETTINGS)
 
     def test_all_export_formats_round_trip_fitted_geometry_and_closure(self):
