@@ -20,6 +20,7 @@ from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet, order_strokes, path_lengths
 from .gcode import Machine
 from .firmware import SERVO_PROFILE, ServoSettings
+from .toolpath import QualityOptions, prepare_toolpath
 
 INK = "#262a25"
 MUTED = "#555e54"
@@ -63,6 +64,8 @@ class Studio:
         self.paper_height = tk.StringVar(value=display(data["paper_height_mm"], self.unit))
         self.margin = tk.StringVar(value=display(data["margin_mm"], self.unit))
         self.optimize = tk.BooleanVar(value=True)
+        self.quality_mode = tk.StringVar(value=data['quality_mode'])
+        self.remove_duplicates = tk.BooleanVar(value=data['remove_duplicates'])
         self.show_travel = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
         self.status = tk.StringVar(value="Sample loaded. Import SVG, DXF, or drawing JSON, or create a pattern.")
@@ -287,7 +290,8 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=5, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=6, name=self.preset_name.get(), units=self.unit,
+                          quality_mode=self.quality_mode.get(), remove_duplicates=self.remove_duplicates.get(),
                           auto_motion_defaults=self.auto_motion_defaults.get(),
                           paper_mount=self.paper_mount.get(),
                           firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
@@ -308,6 +312,8 @@ class Studio:
         self.unit_choice.set(UNIT_NAMES[self.unit])
         self.paper_mount.set(data['paper_mount'])
         self.auto_motion_defaults.set(data['auto_motion_defaults'])
+        self.quality_mode.set(data['quality_mode'])
+        self.remove_duplicates.set(data['remove_duplicates'])
         for name, variable in self.dimension_fields().items():
             variable.set("" if data[name] is None else display(data[name], self.unit))
         for key in ("name", "firmware", "pen_up", "pen_down", "settle"):
@@ -324,9 +330,12 @@ class Studio:
             raise ValueError("Enter numeric paper dimensions and margin on the Design tab.") from exc
         sheet = Sheet(*dimensions)
         fitted = fit_to_sheet(self.source, sheet)
+        start = (0, sheet.height) if self.paper_mount.get() == 'top_left_y' else (0, 0)
+        drawing, report = prepare_toolpath(fitted, QualityOptions(
+            self.quality_mode.get(), self.remove_duplicates.get(), self.optimize.get()), start)
         self.sheet = sheet
-        self.drawing = order_strokes(fitted) if self.optimize.get() else fitted
-        drawn, travel = path_lengths(self.drawing)
+        self.drawing, self.quality_report = drawing, report
+        drawn, travel = report.after.drawn_mm, report.after.travel_mm
         self.stats.set(
             f"{from_mm(self.sheet.width, self.unit):.3f} × {from_mm(self.sheet.height, self.unit):.3f} {self.unit}  ·  {len(self.drawing):,} strokes"
             f"  ·  {from_mm(drawn, self.unit):,.2f} {self.unit} drawn  ·  {from_mm(travel, self.unit):,.2f} {self.unit} pen-up"
@@ -370,7 +379,7 @@ class Studio:
         self.controls.update_axes()
         if self.controls.session:
             self.controls.session.invalidate_paper_origin()
-        self.paint()
+        self.apply_layout()
 
     def apply_layout(self) -> None:
         try:
@@ -527,6 +536,7 @@ class Studio:
         actions.pack(fill='x')
         def signature():
             return (self.revision, self.unit, self.firmware.get(), self.pen_up.get(), self.pen_down.get(),
+                    self.quality_mode.get(), self.remove_duplicates.get(),
                     self.settle.get(), self.paper_mount.get(), self.optimize.get(), *(v.get() for v in self.dimension_fields().values()))
         reviewed = signature()
         def run():
