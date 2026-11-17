@@ -12,7 +12,7 @@ from xml.etree import ElementTree
 
 from .drawing import read_svg
 from .raster import TraceOptions, check_cancel, load_raster, trace_image
-from .vector_io import checked_drawing, read_drawing, read_dxf
+from .vector_io import MAX_FILE_BYTES, checked_drawing, read_drawing, read_dxf
 
 IMPORT_FORMATS = [('Supported artwork', '*.svg *.ai *.dwg *.psd *.pdf *.png *.dxf *.json'),
                   ('SVG', '*.svg'), ('Adobe Illustrator', '*.ai'), ('AutoCAD DWG', '*.dwg'),
@@ -124,18 +124,16 @@ def _require_output(path):
 
 def read_converted_dwg(path):
     """Repair only null entity identifiers emitted by LibreDWG, never geometry."""
-    try:
-        return read_dxf(path), ''
-    except ValueError as exc:
-        if str(exc) != 'Invalid handle 0.':
-            raise
-    # ASCII DXF consists of group-code/value pairs. A null entity identifier is
-    # invalid; omitting it lets ezdxf allocate an identifier. Keep null references
-    # (e.g. owner code 330), header variables, layer flags and all geometry intact.
+    if path.stat().st_size > MAX_FILE_BYTES:
+        raise ValueError('Choose a DWG whose converted DXF is under 10 MB.')
+    # ASCII DXF consists of group-code/value pairs. Allocate identifiers beyond
+    # ALL existing handles; the converter's HANDSEED may be stale. Keep null
+    # references (e.g. owner code 330), layer flags and all geometry intact.
     lines = path.read_bytes().splitlines(keepends=True)
     if len(lines) % 2:
         raise ValueError('DWG converter produced malformed DXF tag pairs.')
-    result, section, awaiting_section, repaired = [], None, False, 0
+    section, awaiting_section, nulls, handles, seed_index = None, False, [], set(), None
+    next_handle = 1
     for index in range(0, len(lines), 2):
         code, value = lines[index].strip(), lines[index + 1].strip()
         if code == b'0' and value == b'SECTION':
@@ -144,15 +142,35 @@ def read_converted_dwg(path):
             section, awaiting_section = value, False
         elif code == b'0' and value == b'ENDSEC':
             section = None
-        if (section in (b'TABLES', b'BLOCKS', b'ENTITIES', b'OBJECTS')
-                and code in (b'5', b'105') and value == b'0'):
-            repaired += 1
-        else:
-            result.extend(lines[index:index + 2])
-    if not repaired:
-        raise ValueError('DWG converter produced an invalid DXF entity identifier.')
-    path.write_bytes(b''.join(result))
-    return read_dxf(path), f'{repaired} null DXF entity identifiers regenerated; path coordinates unchanged. '
+        if code in (b'5', b'105'):
+            try:
+                handle = int(value, 16)
+            except ValueError as exc:
+                raise ValueError('DWG converter produced an invalid DXF entity identifier.') from exc
+            next_handle = max(next_handle, handle + 1)
+            if section in (b'TABLES', b'BLOCKS', b'ENTITIES', b'OBJECTS'):
+                if handle == 0:
+                    nulls.append(index + 1)
+                elif handle in handles:
+                    raise ValueError('DWG converter produced duplicate DXF entity identifiers. Re-export as DXF from CAD.')
+                else:
+                    handles.add(handle)
+            elif section == b'HEADER' and index >= 2 and lines[index - 1].strip() == b'$HANDSEED':
+                seed_index = index + 1
+
+    def set_handle(index, handle):
+        ending = b'\r\n' if lines[index].endswith(b'\r\n') else b'\n'
+        lines[index] = f'{handle:X}'.encode('ascii') + ending
+
+    for index in nulls:
+        set_handle(index, next_handle)
+        next_handle += 1
+    if nulls:
+        if seed_index is not None:
+            set_handle(seed_index, next_handle)
+        path.write_bytes(b''.join(lines))
+    note = f'{len(nulls)} null DXF entity identifiers regenerated; path coordinates unchanged. ' if nulls else ''
+    return read_dxf(path), note
 
 
 def read_artwork(path, options=None, cancel=None):

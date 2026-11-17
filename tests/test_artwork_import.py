@@ -155,13 +155,27 @@ class ConverterContractTests(TestCase):
             needle = ('  5\n' + line.dxf.handle + '\n').encode()
             data = data.replace(b'\r\n', b'\n')
             self.assertIn(needle, data)
-            path.write_bytes(data.replace(needle, b'  5\n0\n'))
+            data = data.replace(needle, b'  5\n0\n')
+            import re
+            data = re.sub(rb'(\$HANDSEED\n  5\n)[^\n]+', rb'\g<1>1', data)
+            path.write_bytes(data)
             with self.assertRaisesRegex(ValueError, 'Invalid handle 0'):
                 read_dxf(path)
-            drawing, note = imports.read_converted_dwg(path)
+            with self.assertNoLogs('ezdxf', level='WARNING'):
+                drawing, note = imports.read_converted_dwg(path)
             self.assertEqual(drawing, expected)
             self.assertEqual(len(drawing), 2)
             self.assertIn('1 null DXF entity', note)
+            doc = ezdxf.new()
+            first = doc.modelspace().add_line((0, 0), (1, 1))
+            second = doc.modelspace().add_line((2, 2), (3, 3))
+            doc.saveas(path)
+            data = path.read_bytes().replace(b'\r\n', b'\n')
+            data = data.replace(('  5\n' + second.dxf.handle + '\n').encode(),
+                                ('  5\n' + first.dxf.handle + '\n').encode())
+            path.write_bytes(data)
+            with self.assertRaisesRegex(ValueError, 'duplicate DXF entity identifiers'):
+                imports.read_converted_dwg(path)
             # A geometry error must not be repaired or silently omitted.
             doc = ezdxf.new(); doc.modelspace().add_text('Unsupported')
             doc.saveas(path)
@@ -262,7 +276,8 @@ class NativeDwgImportTests(TestCase):
             doc.modelspace().add_blockref('part', (10, 20))
             doc.saveas(source)
             imports.run_converter([shutil.which('dxf2dwg'), '--as', 'r2000', '-o', str(target), str(source)], folder)
-            drawing = read_artwork(target).drawing
+            with self.assertNoLogs('ezdxf', level='WARNING'):
+                drawing = read_artwork(target).drawing
             self.assertEqual(len(drawing), 3)
             self.assertEqual(drawing[0], ((1., -2.), (3., -4.)))
             self.assertEqual(drawing[1][0], drawing[1][-1])
