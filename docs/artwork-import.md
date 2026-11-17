@@ -82,6 +82,10 @@ Converters run as separate processes, with argument lists (no shell), temporary
 input/output copies, cancellation and a 90-second limit per conversion stage.
 Original files are not overwritten. Missing tools and failed conversions produce
 an explanation in the preview dialog. No file is uploaded to a conversion service.
+LibreDWG can emit null DXF entity identifiers. SCRIB3 regenerates those identifiers
+on the temporary conversion copy and reports the count in the preview; coordinates,
+layers and block definitions are retained. Other invalid or unsupported geometry
+still fails explicitly.
 
 Export continues to produce SVG, DXF, drawing JSON or reviewed G-code. SCRIB3
 does not write native AI, DWG or layered PSD documents in this release.

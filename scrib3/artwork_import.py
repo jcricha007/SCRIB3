@@ -122,6 +122,39 @@ def _require_output(path):
         raise ValueError('Converted artwork exceeds 64 MB. Simplify the source file.')
 
 
+def read_converted_dwg(path):
+    """Repair only null entity identifiers emitted by LibreDWG, never geometry."""
+    try:
+        return read_dxf(path), ''
+    except ValueError as exc:
+        if str(exc) != 'Invalid handle 0.':
+            raise
+    # ASCII DXF consists of group-code/value pairs. A null entity identifier is
+    # invalid; omitting it lets ezdxf allocate an identifier. Keep null references
+    # (e.g. owner code 330), header variables, layer flags and all geometry intact.
+    lines = path.read_bytes().splitlines(keepends=True)
+    if len(lines) % 2:
+        raise ValueError('DWG converter produced malformed DXF tag pairs.')
+    result, section, awaiting_section, repaired = [], None, False, 0
+    for index in range(0, len(lines), 2):
+        code, value = lines[index].strip(), lines[index + 1].strip()
+        if code == b'0' and value == b'SECTION':
+            awaiting_section = True
+        elif awaiting_section and code == b'2':
+            section, awaiting_section = value, False
+        elif code == b'0' and value == b'ENDSEC':
+            section = None
+        if (section in (b'TABLES', b'BLOCKS', b'ENTITIES', b'OBJECTS')
+                and code in (b'5', b'105') and value == b'0'):
+            repaired += 1
+        else:
+            result.extend(lines[index:index + 2])
+    if not repaired:
+        raise ValueError('DWG converter produced an invalid DXF entity identifier.')
+    path.write_bytes(b''.join(result))
+    return read_dxf(path), f'{repaired} null DXF entity identifiers regenerated; path coordinates unchanged. '
+
+
 def read_artwork(path, options=None, cancel=None):
     path = Path(path)
     extension = path.suffix.lower()
@@ -152,7 +185,8 @@ def read_artwork(path, options=None, cancel=None):
             output = folder / 'converted.dxf'
             run_converter([require_converter('dwg2dxf'), '-o', str(output), str(source)], folder, cancel)
             _require_output(output)
-            return ImportResult(read_dxf(output), 'DWG converted through LibreDWG; flat model-space paths only. '
+            drawing, repair_note = read_converted_dwg(output)
+            return ImportResult(drawing, repair_note + 'DWG converted through LibreDWG; flat model-space paths only. '
                                 'Review the result; paper layouts and unsupported CAD entities are not imported.')
         if extension == '.ai':
             with source.open('rb') as stream:

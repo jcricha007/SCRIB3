@@ -137,6 +137,37 @@ class RasterImportTests(TestCase):
 
 
 class ConverterContractTests(TestCase):
+    def test_null_dwg_entity_identifiers_preserve_paths_and_hidden_layers(self):
+        import ezdxf
+        from scrib3.vector_io import read_dxf
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / 'converted.dxf'
+            doc = ezdxf.new('R2000')
+            line = doc.modelspace().add_line((1, 2), (3, 4))
+            doc.layers.new('hidden'); doc.layers.get('hidden').off()
+            doc.modelspace().add_line((0, 0), (90, 90), dxfattribs={'layer': 'hidden'})
+            block = doc.blocks.new('part'); block.add_line((0, 0), (1, 0))
+            doc.modelspace().add_blockref('part', (10, 20))
+            doc.saveas(path)
+            expected = read_dxf(path)
+            data = path.read_bytes()
+            # Change just the LINE identifier, leaving header and null owner references.
+            needle = ('  5\n' + line.dxf.handle + '\n').encode()
+            data = data.replace(b'\r\n', b'\n')
+            self.assertIn(needle, data)
+            path.write_bytes(data.replace(needle, b'  5\n0\n'))
+            with self.assertRaisesRegex(ValueError, 'Invalid handle 0'):
+                read_dxf(path)
+            drawing, note = imports.read_converted_dwg(path)
+            self.assertEqual(drawing, expected)
+            self.assertEqual(len(drawing), 2)
+            self.assertIn('1 null DXF entity', note)
+            # A geometry error must not be repaired or silently omitted.
+            doc = ezdxf.new(); doc.modelspace().add_text('Unsupported')
+            doc.saveas(path)
+            with self.assertRaisesRegex(ValueError, 'Unsupported visible DXF entity'):
+                imports.read_converted_dwg(path)
+
     @skipUnless(os.environ.get('SCRIB3_NATIVE_IMPORT_TESTS') == '1', 'Native import acceptance job only')
     def test_native_acceptance_has_all_converters(self):
         import shutil
@@ -225,9 +256,14 @@ class NativeDwgImportTests(TestCase):
             doc = ezdxf.new('R2000')
             doc.modelspace().add_line((1, 2), (3, 4))
             doc.modelspace().add_circle((10, 10), 2)
+            doc.layers.new('hidden'); doc.layers.get('hidden').off()
+            doc.modelspace().add_line((0, 0), (90, 90), dxfattribs={'layer': 'hidden'})
+            block = doc.blocks.new('part'); block.add_line((0, 0), (1, 0))
+            doc.modelspace().add_blockref('part', (10, 20))
             doc.saveas(source)
             imports.run_converter([shutil.which('dxf2dwg'), '--as', 'r2000', '-o', str(target), str(source)], folder)
             drawing = read_artwork(target).drawing
-            self.assertEqual(len(drawing), 2)
+            self.assertEqual(len(drawing), 3)
             self.assertEqual(drawing[0], ((1., -2.), (3., -4.)))
             self.assertEqual(drawing[1][0], drawing[1][-1])
+            self.assertEqual(drawing[2], ((10., -20.), (11., -20.)))

@@ -40,7 +40,7 @@ jobs:
           echo "62ebb73b984f865960f20ed26619ea5f8789d5e3fd088fa40a2598384da81275  $RUNNER_TEMP/libredwg.tar.xz" | sha256sum --check
           tar -xJf "$RUNNER_TEMP/libredwg.tar.xz" -C "$RUNNER_TEMP"
           cd "$RUNNER_TEMP/libredwg-0.14"
-          ./configure --disable-shared --disable-bindings
+          CFLAGS='-O0' ./configure --disable-shared --disable-bindings
           make -j2 -C src
           make -j2 -C programs dwg2dxf dxf2dwg
           echo "$RUNNER_TEMP/libredwg-0.14/programs" >> "$GITHUB_PATH"
