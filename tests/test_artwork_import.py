@@ -156,6 +156,9 @@ class ConverterContractTests(TestCase):
             data = data.replace(b'\r\n', b'\n')
             self.assertIn(needle, data)
             data = data.replace(needle, b'  5\n0\n')
+            # LibreDWG can also reuse ENDBLK identifiers between block records.
+            data = data.replace(('  5\n' + block.endblk.dxf.handle + '\n').encode(),
+                                ('  5\n' + doc.modelspace().block_record.endblk.dxf.handle + '\n').encode())
             import re
             data = re.sub(rb'(\$HANDSEED\n  5\n)[^\n]+', rb'\g<1>1', data)
             path.write_bytes(data)
@@ -166,6 +169,7 @@ class ConverterContractTests(TestCase):
             self.assertEqual(drawing, expected)
             self.assertEqual(len(drawing), 2)
             self.assertIn('1 null DXF entity', note)
+            self.assertIn('1 repeated block-end', note)
             doc = ezdxf.new()
             first = doc.modelspace().add_line((0, 0), (1, 1))
             second = doc.modelspace().add_line((2, 2), (3, 3))

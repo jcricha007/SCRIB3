@@ -123,7 +123,7 @@ def _require_output(path):
 
 
 def read_converted_dwg(path):
-    """Repair only null entity identifiers emitted by LibreDWG, never geometry."""
+    """Repair null IDs and repeated block-end IDs emitted by LibreDWG."""
     if path.stat().st_size > MAX_FILE_BYTES:
         raise ValueError('Choose a DWG whose converted DXF is under 10 MB.')
     # ASCII DXF consists of group-code/value pairs. Allocate identifiers beyond
@@ -132,10 +132,13 @@ def read_converted_dwg(path):
     lines = path.read_bytes().splitlines(keepends=True)
     if len(lines) % 2:
         raise ValueError('DWG converter produced malformed DXF tag pairs.')
-    section, awaiting_section, nulls, handles, seed_index = None, False, [], set(), None
+    section, awaiting_section, replacements, handles, seed_index = None, False, [], {}, None
+    kind, null_count, block_end_count = None, 0, 0
     next_handle = 1
     for index in range(0, len(lines), 2):
         code, value = lines[index].strip(), lines[index + 1].strip()
+        if code == b'0':
+            kind = value
         if code == b'0' and value == b'SECTION':
             awaiting_section = True
         elif awaiting_section and code == b'2':
@@ -150,11 +153,19 @@ def read_converted_dwg(path):
             next_handle = max(next_handle, handle + 1)
             if section in (b'TABLES', b'BLOCKS', b'ENTITIES', b'OBJECTS'):
                 if handle == 0:
-                    nulls.append(index + 1)
+                    replacements.append(index + 1)
+                    null_count += 1
                 elif handle in handles:
-                    raise ValueError('DWG converter produced duplicate DXF entity identifiers. Re-export as DXF from CAD.')
+                    if kind == handles[handle] == b'ENDBLK':
+                        # ENDBLK is a structural terminator, with no drawable
+                        # geometry or children. Retain each marker and its owner.
+                        replacements.append(index + 1)
+                        block_end_count += 1
+                    else:
+                        detail = f'{handles[handle].decode("ascii", "replace")}/{kind.decode("ascii", "replace")} #{handle:X}'
+                        raise ValueError(f'DWG converter produced duplicate DXF entity identifiers ({detail}). Re-export as DXF from CAD.')
                 else:
-                    handles.add(handle)
+                    handles[handle] = kind
             elif section == b'HEADER' and index >= 2 and lines[index - 1].strip() == b'$HANDSEED':
                 seed_index = index + 1
 
@@ -162,14 +173,15 @@ def read_converted_dwg(path):
         ending = b'\r\n' if lines[index].endswith(b'\r\n') else b'\n'
         lines[index] = f'{handle:X}'.encode('ascii') + ending
 
-    for index in nulls:
+    for index in replacements:
         set_handle(index, next_handle)
         next_handle += 1
-    if nulls:
+    if replacements:
         if seed_index is not None:
             set_handle(seed_index, next_handle)
         path.write_bytes(b''.join(lines))
-    note = f'{len(nulls)} null DXF entity identifiers regenerated; path coordinates unchanged. ' if nulls else ''
+    note = (f'{null_count} null DXF entity identifiers and {block_end_count} repeated block-end identifiers '
+            'regenerated; path coordinates unchanged. ') if replacements else ''
     return read_dxf(path), note
 
 
