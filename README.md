@@ -2,6 +2,14 @@
 
 SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines vector design tools, local Ollama chat and drawing proposals, toolpath preview, SVG/G-code export, guided travel calibration, direct plotter control, saved presets, and metric/imperial units.
 
+**Import drawing** accepts SVG, AI, DWG, PSD, PDF and PNG, plus DXF and drawing
+JSON. PNG/PSD artwork is traced with a source/path comparison before applying.
+PDF/AI can preserve vector paths or trace a selected rendered page. PDF/AI require
+Inkscape; DWG requires LibreDWG; legacy PostScript AI also needs Ghostscript.
+See [artwork import and converter setup](docs/artwork-import.md) for supported
+variants, tracing controls, and Mac/Windows setup. Exports remain SVG, DXF,
+drawing JSON and G-code.
+
 ## Run on Windows
 
 With Python 3.12 installed, open PowerShell in the cloned repository and run the following commands.

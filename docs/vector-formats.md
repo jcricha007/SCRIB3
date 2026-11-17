@@ -1,9 +1,11 @@
 # Vector drawings and closed-loop seams
 
-Use **Import drawing** for SVG, DXF, or SCRIB3 drawing JSON. All files are fitted
+Use **Import drawing** for SVG, AI, DWG, PSD, PDF, PNG, DXF, or SCRIB3 drawing JSON.
+The [artwork import guide](artwork-import.md) describes converter installation,
+page selection, image tracing and format limitations. All files are fitted
 proportionally to the current paper and margin using their artwork bounds.
 Import is not a 1:1 CAD-scale workflow. Review the preview before running.
-**Export drawing** saves the fitted geometry to any of these three formats.
+**Export drawing** saves the fitted geometry to SVG, DXF or drawing JSON.
 The file extension selects the format. Exports contain geometry, not controller
 settings, paper zero, or a runnable job. Use Review G-code for machine output.
 
@@ -49,7 +51,8 @@ No commands, scripts, or machine settings are accepted.
 
 SVG is the most convenient format for new designs in chat: it supports exact
 circles and curves, previews in common tools, and imports here. DXF is useful
-for CAD drawings. PNG/JPEG require tracing to vector paths before import.
+for CAD drawings. PNG and the saved merged PSD image can now be traced directly
+inside SCRIB3. Convert JPEG to PNG before importing.
 
 ## Closing small gaps
 
