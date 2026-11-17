@@ -1,0 +1,23 @@
+name: Optional optimizer
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  optimizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      SCRIB3_DESKTOP_TESTS: ${{ matrix.os == 'windows-latest' && '1' || '0' }}
+      SCRIB3_VPYPE_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-optimizer.txt
+      - run: python -m unittest discover -s tests -v

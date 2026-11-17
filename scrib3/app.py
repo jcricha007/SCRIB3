@@ -20,7 +20,7 @@ from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet
 from .gcode import Machine
 from .firmware import SERVO_PROFILE, ServoSettings
-from .toolpath import QualityOptions, prepare_toolpath
+from .toolpath import PathMetrics, QualityOptions, prepare_toolpath
 from . import theme
 from .theme import INK, MUTED, BACKGROUND, DESK, PAPER, ACCENT, TRAVEL
 
@@ -193,7 +193,8 @@ class Studio:
             row=4, columnspan=2, sticky="w", pady=4
         )
         ttk.Button(panel, text="Fit to paper", command=self.apply_layout).grid(row=5, columnspan=2, sticky="ew")
-        ttk.Separator(panel).grid(row=6, columnspan=2, sticky="ew", pady=12)
+        self.route_button = ttk.Button(panel, text='Compare travel routes', command=self.open_route_comparison)
+        self.route_button.grid(row=6, columnspan=2, sticky='ew', pady=(6, 0))
 
         ttk.Button(panel, text="Open Ollama assistant", style="Primary.TButton", command=self.open_assistant).grid(
             row=7, columnspan=2, sticky="ew")
@@ -351,6 +352,13 @@ class Studio:
             fitted = fit_to_sheet(self.source, sheet)
             drawing, report = prepare_toolpath(fitted, options, start)
             self._toolpath_cache = (key, fitted, drawing, report)
+        override = getattr(self, 'route_override', None)
+        if override is not None:
+            if override[0] == key:
+                drawing = override[1]
+                report = replace(report, after=PathMetrics.measure(drawing, start))
+            else:
+                self.route_override = None
         self.sheet = sheet
         self.drawing, self.quality_report, self.fitted = drawing, report, fitted
         drawn, travel = report.after.drawn_mm, report.after.travel_mm
@@ -431,6 +439,10 @@ class Studio:
         self.source_name.set(name)
         self.undo_state = (old_name, old_source)
         self.revision += 1
+
+    def open_route_comparison(self):
+        from .route_ui import RouteWindow
+        RouteWindow(self)
 
     def open_assistant(self):
         if self.assistant is None:
