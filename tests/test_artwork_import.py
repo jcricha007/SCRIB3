@@ -161,6 +161,7 @@ class ConverterContractTests(TestCase):
                                 ('  5\n' + doc.modelspace().block_record.endblk.dxf.handle + '\n').encode())
             import re
             data = re.sub(rb'(\$HANDSEED\n  5\n)[^\n]+', rb'\g<1>1', data)
+            data = re.sub(rb'(  0\nENDBLK\n.*?)(?=  0\n)', rb'\1\1', data, count=1, flags=re.S)
             path.write_bytes(data)
             with self.assertRaisesRegex(ValueError, 'Invalid handle 0'):
                 read_dxf(path)
@@ -170,6 +171,14 @@ class ConverterContractTests(TestCase):
             self.assertEqual(len(drawing), 2)
             self.assertIn('1 null DXF entity', note)
             self.assertIn('1 repeated block-end', note)
+            self.assertIn('1 stray block-end', note)
+            bad = path.read_bytes().replace(b'\r\n', b'\n')
+            orphan = b'  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 11\n1\n 21\n1\n'
+            bad = re.sub(rb'(  0\nENDBLK\n.*?)(?=  0\n)', lambda m: m.group(1) + orphan,
+                         bad, count=1, flags=re.S)
+            path.write_bytes(bad)
+            with self.assertRaisesRegex(ValueError, 'orphaned block geometry'):
+                imports.read_converted_dwg(path)
             doc = ezdxf.new()
             first = doc.modelspace().add_line((0, 0), (1, 1))
             second = doc.modelspace().add_line((2, 2), (3, 3))

@@ -132,6 +132,37 @@ def read_converted_dwg(path):
     lines = path.read_bytes().splitlines(keepends=True)
     if len(lines) % 2:
         raise ValueError('DWG converter produced malformed DXF tag pairs.')
+    # Some LibreDWG outputs append a second ENDBLK after a complete block.
+    # Discard only unmatched structural terminators; reject orphaned geometry.
+    starts = [i for i in range(0, len(lines), 2) if lines[i].strip() == b'0']
+    if not starts or starts[0] != 0:
+        starts.insert(0, 0)
+    starts.append(len(lines))
+    retained, section, block_open, stray_ends = [], None, False, 0
+    for start, end in zip(starts, starts[1:]):
+        record = lines[start:end]
+        kind = record[1].strip() if record and record[0].strip() == b'0' else None
+        if kind == b'SECTION' and len(record) >= 4:
+            section = record[3].strip()
+        if section == b'BLOCKS':
+            if kind == b'BLOCK':
+                if block_open:
+                    raise ValueError('DWG converter produced an unclosed DXF block.')
+                block_open = True
+            elif kind == b'ENDBLK':
+                if not block_open:
+                    stray_ends += 1
+                    continue
+                block_open = False
+            elif kind == b'ENDSEC':
+                if block_open:
+                    raise ValueError('DWG converter produced an unclosed DXF block.')
+            elif kind != b'SECTION' and not block_open:
+                raise ValueError('DWG converter produced orphaned block geometry. Re-export as DXF from CAD.')
+        if kind == b'ENDSEC':
+            section = None
+        retained.extend(record)
+    lines = retained
     section, awaiting_section, replacements, handles, seed_index = None, False, [], {}, None
     kind, null_count, block_end_count = None, 0, 0
     next_handle = 1
@@ -176,12 +207,13 @@ def read_converted_dwg(path):
     for index in replacements:
         set_handle(index, next_handle)
         next_handle += 1
-    if replacements:
+    if replacements or stray_ends:
         if seed_index is not None:
             set_handle(seed_index, next_handle)
         path.write_bytes(b''.join(lines))
     note = (f'{null_count} null DXF entity identifiers and {block_end_count} repeated block-end identifiers '
-            'regenerated; path coordinates unchanged. ') if replacements else ''
+            f'regenerated; {stray_ends} stray block-end markers removed. Path coordinates unchanged. '
+            if replacements or stray_ends else '')
     return read_dxf(path), note
 
 
