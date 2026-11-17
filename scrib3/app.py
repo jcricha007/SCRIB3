@@ -12,6 +12,7 @@ from .jobs import PlotJob
 from .job_ui import JobWindow
 from .setup_guides import MotionDefaultsWindow, PaperGuideWindow
 from .quality_ui import QualityWindow
+from .lettering_ui import LetteringWindow
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
@@ -214,6 +215,8 @@ class Studio:
                        command=lambda op=operation: self.transform_design(op)).pack(side="left", fill="x", expand=True)
         ttk.Button(panel, text="Undo design", command=self.undo_design).grid(row=13, column=0, sticky="ew")
         ttk.Button(panel, text="Export drawing", command=self.export_drawing).grid(row=13, column=1, sticky="ew")
+        self.lettering_button = ttk.Button(panel, text='Stroke lettering / caption', command=lambda: LetteringWindow(self))
+        self.lettering_button.grid(row=14, columnspan=2, sticky='ew', pady=(6, 0))
 
     def build_machine_tab(self, panel: ttk.Frame) -> None:
         profile_panel = ttk.Frame(panel)
