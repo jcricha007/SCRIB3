@@ -63,6 +63,7 @@ class SvgDashesTests(TestCase):
                            'stroke-dasharray="2 2" pathLength="10"',
                            'stroke-dasharray="2 2" vector-effect="non-scaling-stroke"',
                            'stroke-dasharray="0 2" stroke-linecap="round"',
+                           'stroke-dasharray="1e308" stroke-dashoffset="-1e308"',
                            'stroke-dasharray=".00001 .00001"'):
             with self.subTest(attributes=attributes), self.assertRaises(ValueError):
                 self.svg('<path d="M0 0L100 0" '+attributes+'/>')

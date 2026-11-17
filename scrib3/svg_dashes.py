@@ -30,6 +30,8 @@ def dash_pattern(values):
         return None  # SVG defines an all-zero array as an undashed stroke.
     if len(pattern) % 2:
         pattern *= 2
+    if not isfinite(sum(pattern)):
+        raise ValueError('SVG dash period is too large.')
     if values.get('stroke-linecap', 'butt') != 'butt' and any(v == 0 for v in pattern[::2]):
         raise ValueError('Convert zero-length dotted strokes to explicit paths before importing.')
     offset = length(str(values.get('stroke-dashoffset', '0')).strip())
@@ -43,6 +45,8 @@ def split_dashes(stroke, pattern, offset, max_strokes=2000, max_points=100000):
     closed seam. All-zero patterns are handled by dash_pattern, not this walker.
     """
     period = sum(pattern)
+    if not isfinite(period) or period <= 0:
+        raise ValueError('SVG dash period must be positive and finite.')
     phase = offset % period
     index = 0
     while pattern[index] == 0 or phase >= pattern[index]:
