@@ -60,6 +60,8 @@ class Studio:
         self.optimize = tk.BooleanVar(value=True)
         self.quality_mode = tk.StringVar(value=data['quality_mode'])
         self.remove_duplicates = tk.BooleanVar(value=data['remove_duplicates'])
+        self.join_strokes = tk.BooleanVar(value=data['join_strokes'])
+        self.reloop = tk.BooleanVar(value=data['reloop'])
         self.show_travel = tk.BooleanVar(value=False)
         self.show_original = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
@@ -294,8 +296,9 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=6, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=7, name=self.preset_name.get(), units=self.unit,
                           quality_mode=self.quality_mode.get(), remove_duplicates=self.remove_duplicates.get(),
+                          join_strokes=self.join_strokes.get(), reloop=self.reloop.get(),
                           auto_motion_defaults=self.auto_motion_defaults.get(),
                           paper_mount=self.paper_mount.get(),
                           firmware=self.firmware.get(), pen_up=self.pen_up.get(), pen_down=self.pen_down.get(),
@@ -318,6 +321,8 @@ class Studio:
         self.auto_motion_defaults.set(data['auto_motion_defaults'])
         self.quality_mode.set(data['quality_mode'])
         self.remove_duplicates.set(data['remove_duplicates'])
+        self.join_strokes.set(data['join_strokes'])
+        self.reloop.set(data['reloop'])
         for name, variable in self.dimension_fields().items():
             variable.set("" if data[name] is None else display(data[name], self.unit))
         for key in ("name", "firmware", "pen_up", "pen_down", "settle"):
@@ -334,7 +339,8 @@ class Studio:
             raise ValueError("Enter numeric paper dimensions and margin on the Design tab.") from exc
         sheet = Sheet(*dimensions)
         start = (0, sheet.height) if self.paper_mount.get() == 'top_left_y' else (0, 0)
-        options = QualityOptions(self.quality_mode.get(), self.remove_duplicates.get(), self.optimize.get())
+        options = QualityOptions(self.quality_mode.get(), self.remove_duplicates.get(), self.optimize.get(),
+                                 self.join_strokes.get(), self.reloop.get())
         key = (self.source, sheet, options, start)
         cached = getattr(self, '_toolpath_cache', None)
         if cached is not None and cached[0] == key:
@@ -351,7 +357,8 @@ class Studio:
         self.metric_travel.set(f'{from_mm(travel, self.unit):,.1f} {self.unit}')
         reduction = 100*(1-report.after.points/report.before.points)
         self.quality_summary.set(f'{self.quality_mode.get()}  |  {report.before.points:,} to {report.after.points:,} points '
-                                 f'({reduction:.0f}% fewer)  |  {report.duplicates_removed} repeated strokes removed')
+                                 f'({reduction:.0f}% fewer)  |  {report.joins} joins  |  '
+                                 f'{report.duplicates_removed} repeats removed')
         self.stats.set(
             f"{from_mm(self.sheet.width, self.unit):.3f} × {from_mm(self.sheet.height, self.unit):.3f} {self.unit}  ·  {len(self.drawing):,} strokes"
             f"  ·  {from_mm(drawn, self.unit):,.2f} {self.unit} drawn  ·  {from_mm(travel, self.unit):,.2f} {self.unit} pen-up"
@@ -558,6 +565,7 @@ class Studio:
         def signature():
             return (self.revision, self.unit, self.firmware.get(), self.pen_up.get(), self.pen_down.get(),
                     self.quality_mode.get(), self.remove_duplicates.get(),
+                    self.join_strokes.get(), self.reloop.get(),
                     self.settle.get(), self.paper_mount.get(), self.optimize.get(), *(v.get() for v in self.dimension_fields().values()))
         reviewed = signature()
         def run():

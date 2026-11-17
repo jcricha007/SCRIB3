@@ -2,7 +2,8 @@
 from dataclasses import dataclass
 
 from .curves import segment_distance
-from .drawing import Drawing, order_strokes, path_lengths
+from .drawing import Drawing, path_lengths
+from .routing import join_exact_strokes, optimize_route, stroke_key
 from .vector_io import checked_drawing
 
 QUALITY_MODES = {'Original': 0.0, 'Fine': 0.005, 'Balanced': 0.02}
@@ -13,11 +14,14 @@ class QualityOptions:
     mode: str = 'Balanced'
     remove_duplicates: bool = False
     order: bool = True
+    join_strokes: bool = False
+    reloop: bool = True
 
     def __post_init__(self):
         if not isinstance(self.mode, str) or self.mode not in QUALITY_MODES:
             raise ValueError('Choose Original, Fine, or Balanced toolpath quality.')
-        if type(self.remove_duplicates) is not bool or type(self.order) is not bool:
+        if any(type(value) is not bool for value in
+               (self.remove_duplicates, self.order, self.join_strokes, self.reloop)):
             raise ValueError('Toolpath switches must be true or false.')
 
 
@@ -40,6 +44,7 @@ class QualityReport:
     after: PathMetrics
     tolerance_mm: float
     duplicates_removed: int
+    joins: int = 0
 
 
 def simplify_stroke(stroke, tolerance):
@@ -81,17 +86,19 @@ def prepare_toolpath(drawing: Drawing, options=QualityOptions(), start=(0, 0)):
     for stroke in drawing:
         # Compare original points exactly: simplification must not cause two
         # nearby but distinct lines to be mistaken for duplicate ink passes.
-        key = min(stroke, stroke[::-1])
-        if options.remove_duplicates and key in seen:
-            duplicates += 1
-            continue
-        seen.add(key)
-        cleaned.append(simplify_stroke(stroke, tolerance))
+        if options.remove_duplicates:
+            key = stroke_key(stroke)
+            if key in seen:
+                duplicates += 1
+                continue
+            seen.add(key)
+        cleaned.append(stroke)
     result = tuple(cleaned)
+    if options.join_strokes:
+        result = join_exact_strokes(result)
+    joins = len(cleaned) - len(result)
+    result = tuple(simplify_stroke(stroke, tolerance) for stroke in result)
     if options.order:
-        candidate = order_strokes(result, start)
-        # Greedy routing is a heuristic. Keep source order if it is shorter.
-        if path_lengths(candidate, start)[1] < path_lengths(result, start)[1]:
-            result = candidate
+        result = optimize_route(result, start, options.reloop)
     after = PathMetrics.measure(result, start)
-    return result, QualityReport(before, after, tolerance, duplicates)
+    return result, QualityReport(before, after, tolerance, duplicates, joins)

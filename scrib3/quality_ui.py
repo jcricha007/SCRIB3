@@ -12,8 +12,8 @@ class QualityWindow:
         self.unit = studio.unit
         self.window = tk.Toplevel(studio.root)
         self.window.title('SCRIB3 | Plot quality')
-        self.window.geometry('560x610')
-        self.window.minsize(560, 610)
+        self.window.geometry('580x650')
+        self.window.minsize(580, 650)
         panel = ttk.Frame(self.window, padding=16)
         panel.pack(fill='both', expand=True)
         ttk.Label(panel, text='Toolpath cleanup', style='Title.TLabel').pack(anchor='w')
@@ -24,15 +24,26 @@ class QualityWindow:
                   'Tolerance applies after fitting to paper, before G-code rounding.',
                   wraplength=490, style='Muted.TLabel').pack(anchor='w')
         self.deduplicate = tk.BooleanVar(value=studio.remove_duplicates.get())
-        ttk.Checkbutton(panel, text='Remove exactly repeated strokes (including reversed copies)',
+        ttk.Checkbutton(panel, text='Remove exact repeats, including reversed / shifted closed loops',
                         variable=self.deduplicate).pack(anchor='w', pady=8)
-        ttk.Label(panel, text='Leave off to preserve intentional overdraw. Small gaps are never joined.',
+        ttk.Label(panel, text='Leave off to preserve intentional overdraw.',
                   wraplength=490, style='Muted.TLabel').pack(anchor='w')
-        ttk.Separator(panel).pack(fill='x', pady=14)
+        self.join_strokes = tk.BooleanVar(value=studio.join_strokes.get())
+        ttk.Checkbutton(panel, text='Join fragments that meet exactly',
+                        variable=self.join_strokes).pack(anchor='w', pady=(8, 0))
+        ttk.Label(panel, text='Reduces pen lifts. Only unambiguous pairs of endpoints join; '
+                  'small gaps and branches stay separate.',
+                  wraplength=490, style='Muted.TLabel').pack(anchor='w')
+        self.reloop = tk.BooleanVar(value=studio.reloop.get())
+        ttk.Checkbutton(panel, text='Choose shorter entry points on closed loops',
+                        variable=self.reloop).pack(anchor='w', pady=(8, 0))
+        ttk.Label(panel, text='Used with Optimize travel. Moves seams to existing vertices without changing the outline.',
+                  wraplength=490, style='Muted.TLabel').pack(anchor='w')
+        ttk.Separator(panel).pack(fill='x', pady=10)
         ttk.Label(panel, text='Closed-loop seams', style='Title.TLabel').pack(anchor='w')
         ttk.Label(panel, text='Retrace the start of each closed loop before lifting the pen. '
                   'Try 0.5 mm (0.0197 in) for small gaps at circle seams. Open paths keep their original endpoints.',
-                  wraplength=480).pack(anchor='w', pady=10)
+                  wraplength=490).pack(anchor='w', pady=6)
         row = ttk.Frame(panel)
         row.pack(fill='x')
         ttk.Label(row, text=f'Overlap ({self.unit})').pack(side='left')
@@ -41,7 +52,7 @@ class QualityWindow:
         ttk.Button(row, text='Use 0.5 mm', command=lambda: self.overlap.set(display(.5, self.unit))).pack(side='left')
         ttk.Label(panel, text='Set 0 to disable. Maximum 5 mm. This follows the existing path and may darken the seam. '
                   'Pen settle remains adjustable on Machine; sketch runs use at least 0.5 seconds.',
-                  wraplength=480, style='Muted.TLabel').pack(anchor='w', pady=12)
+                  wraplength=490, style='Muted.TLabel').pack(anchor='w', pady=6)
         self.status = tk.StringVar()
         report = studio.quality_report
         self.summary = tk.StringVar(value=f'Current preview: {report.before.points:,} to {report.after.points:,} points; '
@@ -62,20 +73,25 @@ class QualityWindow:
         old_overlap = self.studio.seam_overlap.get()
         self.studio.seam_overlap.set(display(value, self.studio.unit))
         old_mode, old_duplicates = self.studio.quality_mode.get(), self.studio.remove_duplicates.get()
+        old_join, old_reloop = self.studio.join_strokes.get(), self.studio.reloop.get()
         self.studio.quality_mode.set(self.mode.get())
         self.studio.remove_duplicates.set(self.deduplicate.get())
+        self.studio.join_strokes.set(self.join_strokes.get())
+        self.studio.reloop.set(self.reloop.get())
         try:
             self.studio.refresh()
         except ValueError as exc:
             self.studio.seam_overlap.set(old_overlap)
             self.studio.quality_mode.set(old_mode)
             self.studio.remove_duplicates.set(old_duplicates)
+            self.studio.join_strokes.set(old_join)
+            self.studio.reloop.set(old_reloop)
             self.status.set(str(exc))
             return
         saved = self.studio.save_preset()
         report = self.studio.quality_report
         self.summary.set(f'Current preview: {report.before.points:,} to {report.after.points:,} points; '
-                         f'{report.duplicates_removed} repeated strokes removed.')
+                         f'{report.joins} joins; {report.duplicates_removed} repeated strokes removed.')
         self.status.set('Saved. Review G-code again to use these settings.' if saved else
                         'Quality settings changed; saving failed. Correct preset fields and save again.')
 
