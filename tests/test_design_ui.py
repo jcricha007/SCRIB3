@@ -172,7 +172,8 @@ class DesignDesktopTests(TestCase):
             dialog = next(w for w in self.root.winfo_children() if isinstance(w, tk.Toplevel) and w.title().startswith('G-code review'))
             run = next(w for w in descendants(dialog) if w.winfo_class() == 'TButton' and w.cget('text') == 'Run sketch')
             self.assertIn('pen-up test', dialog.output.get('1.0', 'end'))
-            for variable, changed in ((app.quality_mode, 'Fine'), (app.remove_duplicates, True)):
+            for variable, changed in ((app.quality_mode, 'Fine'), (app.remove_duplicates, True),
+                                      (app.join_strokes, True), (app.reloop, False)):
                 original = variable.get()
                 variable.set(changed)
                 run.invoke()
@@ -286,12 +287,16 @@ class DesignDesktopTests(TestCase):
             error.reset_mock()
             quality = QualityWindow(app); self.windows.append(quality)
             quality.overlap.set(str(.5/25.4))
+            quality.join_strokes.set(True)
+            quality.reloop.set(False)
             # An already-open quality window keeps its displayed unit even when
             # the main workspace switches units before Apply.
             app.unit_choice.set('Millimeters'); app.change_units()
             quality.apply()
             self.assertAlmostEqual(float(app.seam_overlap.get()), .5)
             self.assertAlmostEqual(presets.load(app.preset_file)['seam_overlap_mm'], .5)
+            self.assertTrue(presets.load(app.preset_file)['join_strokes'])
+            self.assertFalse(presets.load(app.preset_file)['reloop'])
             quality.overlap.set('99'); quality.apply()
             self.assertIn('between', quality.status.get())
             self.assertAlmostEqual(float(app.seam_overlap.get()), .5)

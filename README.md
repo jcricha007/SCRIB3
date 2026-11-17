@@ -116,5 +116,11 @@ SVG curves now use adaptive flattening, and **Plot quality** offers Original,
 Fine and Balanced cleanup using the open-source `rdp` library. Reinstall
 `requirements.txt` when updating. Quality settings persist in machine presets.
 The refreshed workspace includes point and travel metrics and a source overlay.
+Travel optimization now improves greedy ordering and can move closed-loop entry
+points. In **Plot quality**, enable **Join fragments that meet exactly** to
+reduce unnecessary pen lifts, or **Remove exact repeats** to eliminate copied
+strokes, including closed loops with different starting points. Both cleanup
+options default off; small gaps remain open. Preferences are saved with your preset.
 See [output quality](docs/output-quality.md) for the research, tolerances and
-the [comparison drawing](examples/quality-check.svg).
+the [curve comparison](examples/quality-check.svg) and
+[routing comparison](examples/routing-check.svg) drawings.

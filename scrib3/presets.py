@@ -29,7 +29,9 @@ V3_FIELDS = V2_FIELDS | {'paper_mount'}
 V4_FIELDS = V3_FIELDS | {'seam_overlap_mm'}
 V5_FIELDS = V4_FIELDS | {'auto_motion_defaults'}
 QUALITY_DEFAULTS = {'quality_mode': 'Balanced', 'remove_duplicates': False}
-FIELDS = V5_FIELDS | QUALITY_DEFAULTS.keys()
+V6_FIELDS = V5_FIELDS | QUALITY_DEFAULTS.keys()
+ROUTING_DEFAULTS = {'join_strokes': False, 'reloop': True}
+FIELDS = V6_FIELDS | ROUTING_DEFAULTS.keys()
 
 
 def preset_path() -> Path:
@@ -56,7 +58,9 @@ def validate(data: dict) -> dict:
         data = data | {'schema_version': 5, 'feed_mm_min': DRAW_FEED, 'auto_motion_defaults': True}
     if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 5 and set(data) == V5_FIELDS:
         data = data | QUALITY_DEFAULTS | {'schema_version': 6}
-    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 6:
+    if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 6 and set(data) == V6_FIELDS:
+        data = data | ROUTING_DEFAULTS | {'schema_version': 7}
+    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 7:
         raise ValueError("Unsupported or incomplete machine preset.")
     result = dict(data)
     if not isinstance(result["name"], str) or not result["name"].strip() or len(result["name"]) > 80:
@@ -64,14 +68,15 @@ def validate(data: dict) -> dict:
     result["name"] = result["name"].strip()
     factor(result["units"])
     validate_mount(result['paper_mount'])
-    QualityOptions(result['quality_mode'], result['remove_duplicates'])
+    QualityOptions(result['quality_mode'], result['remove_duplicates'],
+                   join_strokes=result['join_strokes'], reloop=result['reloop'])
     if result["firmware"] not in {"Manual commands", SERVO_PROFILE}:
         raise ValueError("Unknown preset firmware profile.")
     if not isinstance(result["ollama_model"], str) or len(result["ollama_model"]) > 200:
         raise ValueError("Invalid saved Ollama model name.")
     if type(result['auto_motion_defaults']) is not bool:
         raise ValueError('Automatic motion setup must be true or false.')
-    for key in FIELDS - {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "ollama_model", "paper_mount", "auto_motion_defaults", "quality_mode", "remove_duplicates"}:
+    for key in FIELDS - {"schema_version", "name", "units", "firmware", "pen_up", "pen_down", "ollama_model", "paper_mount", "auto_motion_defaults", "quality_mode", "remove_duplicates", "join_strokes", "reloop"}:
         if result[key] is None and key in {"machine_width_mm", "machine_height_mm", "feed_mm_min"}:
             continue
         if type(result[key]) not in {int, float}:

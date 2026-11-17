@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220mm" height="160mm" viewBox="0 0 220 160">
+  <g fill="none" stroke="black" stroke-width="0.3">
+    <!-- Four exact-endpoint fragments: one contour with joining enabled. -->
+    <path d="M10 10 L90 10 M90 60 L90 10 M10 60 L90 60 M10 10 L10 60"/>
+    <!-- Same closed square, shifted seam and reversed direction: one repeat. -->
+    <path d="M120 10 L170 10 L170 60 L120 60 Z"/>
+    <path d="M170 60 L170 10 L120 10 L120 60 Z"/>
+    <!-- An intentional gap, and a three-way branch: these must stay separate. -->
+    <path d="M10 90 L50 90 M50.5 90 L90 90 M10 120 L50 120 M50 120 L90 120 M50 120 L50 150"/>
+    <!-- Loop entry can move to a nearby vertex without changing its outline. -->
+    <circle cx="150" cy="120" r="25"/>
+    <path d="M200 10 L210 10 M200 150 L210 150 M200 50 L210 50 M200 110 L210 110"/>
+  </g>
+</svg>
