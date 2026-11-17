@@ -12,7 +12,6 @@ from .jobs import PlotJob
 from .job_ui import JobWindow
 from .setup_guides import MotionDefaultsWindow, PaperGuideWindow
 from .quality_ui import QualityWindow
-from .route_ui import RouteWindow
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
@@ -194,7 +193,7 @@ class Studio:
             row=4, columnspan=2, sticky="w", pady=4
         )
         ttk.Button(panel, text="Fit to paper", command=self.apply_layout).grid(row=5, columnspan=2, sticky="ew")
-        self.route_button = ttk.Button(panel, text='Compare travel routes', command=lambda: RouteWindow(self))
+        self.route_button = ttk.Button(panel, text='Compare travel routes', command=self.open_route_comparison)
         self.route_button.grid(row=6, columnspan=2, sticky='ew', pady=(6, 0))
 
         ttk.Button(panel, text="Open Ollama assistant", style="Primary.TButton", command=self.open_assistant).grid(
@@ -438,6 +437,10 @@ class Studio:
         self.source_name.set(name)
         self.undo_state = (old_name, old_source)
         self.revision += 1
+
+    def open_route_comparison(self):
+        from .route_ui import RouteWindow
+        RouteWindow(self)
 
     def open_assistant(self):
         if self.assistant is None:
