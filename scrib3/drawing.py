@@ -10,6 +10,7 @@ from svgelements import Close, Image, Line, Move, SVG, Shape, Text
 from svgelements import Path as SvgPath
 
 from .curves import flatten_segment
+from .svg_dashes import dash_pattern, split_dashes
 
 Point = tuple[float, float]
 Stroke = tuple[Point, ...]
@@ -99,7 +100,8 @@ def read_svg(path: Path) -> Drawing:
     ):
         raise ValueError("Flatten SVG clipping, masks, and filters to paths before importing.")
 
-    svg = SVG.parse(StringIO(markup), reify=True, ppi=96, on_error="raise")
+    # Keep transforms until dashed subpaths have been split in local units.
+    svg = SVG.parse(StringIO(markup), reify=False, ppi=96, on_error="raise")
     shapes = []
     for element in svg.elements():
         visibility = element.values.get("visibility")
@@ -108,10 +110,12 @@ def read_svg(path: Path) -> Drawing:
         if isinstance(element, (Text, Image)):
             raise ValueError("Convert visible text and images to vector paths before importing.")
         if isinstance(element, Shape):
-            shapes.append(SvgPath(element).reify())
+            path = SvgPath(element)
+            dashes = dash_pattern(element.values)
+            shapes.append((path if dashes else path.reify(), dashes))
             if len(shapes) > MAX_STROKES:
                 raise ValueError("Simplify the SVG to 2,000 shapes or fewer.")
-    bounds = [bound for shape in shapes if (bound := shape.bbox()) is not None]
+    bounds = [bound for shape, _ in shapes if (bound := shape.bbox()) is not None]
     if not bounds:
         raise ValueError("This SVG contains no supported vector paths.")
     width = max(box[2] for box in bounds) - min(box[0] for box in bounds)
@@ -123,14 +127,19 @@ def read_svg(path: Path) -> Drawing:
     tolerance = max(width, height) * 1e-5
     drawing: list[Stroke] = []
     count = 0
-    for shape in shapes:
+    for shape, dashes in shapes:
+        # Frobenius norm is a conservative bound on transform magnification.
+        matrix = shape.transform
+        magnification = hypot(matrix.a, matrix.b, matrix.c, matrix.d) if dashes else 1
+        local_tolerance = tolerance / max(magnification, 1e-30)
+        subpaths = []
         points: list[Point] = []
         for segment in shape:
             if isinstance(segment, Move):
                 if len(points) > 1:
-                    drawing.append(tuple(points))
+                    subpaths.append(tuple(points))
                 points = []
-                if len(drawing) >= MAX_STROKES:
+                if len(drawing) + len(subpaths) >= MAX_STROKES:
                     raise ValueError("Simplify the SVG to 2,000 strokes or fewer.")
                 continue
             if segment.start is None or segment.end is None:
@@ -139,7 +148,7 @@ def read_svg(path: Path) -> Drawing:
             if not points:
                 points.append(start)
                 count += 1
-            samples = flatten_segment(segment, tolerance, MAX_POINTS - count)
+            samples = flatten_segment(segment, local_tolerance, MAX_POINTS - count)
             count += len(samples)
             if count > MAX_POINTS:
                 raise ValueError("Simplify the SVG to reduce the number of plotting points.")
@@ -148,7 +157,18 @@ def read_svg(path: Path) -> Drawing:
                 if xy != points[-1]:
                     points.append(xy)
         if len(points) > 1:
-            drawing.append(tuple(points))
+            subpaths.append(tuple(points))
+        for stroke in subpaths:
+            if dashes:
+                expanded = split_dashes(stroke, *dashes, max_strokes=MAX_STROKES-len(drawing),
+                                        max_points=MAX_POINTS-sum(map(len, drawing)))
+                for part in expanded:
+                    drawing.append(tuple((matrix.a*x+matrix.c*y+matrix.e,
+                                          matrix.b*x+matrix.d*y+matrix.f) for x, y in part))
+            else:
+                drawing.append(stroke)
+            if sum(map(len, drawing)) > MAX_POINTS:
+                raise ValueError('Simplify the SVG to reduce the number of plotting points.')
         if len(drawing) > MAX_STROKES:
             raise ValueError("Simplify the SVG to 2,000 strokes or fewer.")
     if not drawing:
