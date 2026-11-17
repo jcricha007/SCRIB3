@@ -216,6 +216,8 @@ class Studio:
                        command=lambda op=operation: self.transform_design(op)).pack(side="left", fill="x", expand=True)
         ttk.Button(panel, text="Undo design", command=self.undo_design).grid(row=13, column=0, sticky="ew")
         ttk.Button(panel, text="Export drawing", command=self.export_drawing).grid(row=13, column=1, sticky="ew")
+        self.lettering_button = ttk.Button(panel, text='Stroke lettering / caption', command=self.open_lettering)
+        self.lettering_button.grid(row=14, columnspan=2, sticky='ew', pady=(6, 0))
 
     def build_machine_tab(self, panel: ttk.Frame) -> None:
         profile_panel = ttk.Frame(panel)
@@ -441,6 +443,10 @@ class Studio:
         if self.assistant is not None:
             self.assistant.shutdown()
         self.controls.shutdown()
+
+    def open_lettering(self):
+        from .lettering_ui import LetteringWindow
+        LetteringWindow(self)
 
     def create_pattern(self):
         try:
