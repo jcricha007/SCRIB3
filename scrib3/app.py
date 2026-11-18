@@ -12,6 +12,8 @@ from .jobs import PlotJob
 from .job_ui import JobWindow
 from .setup_guides import MotionDefaultsWindow, PaperGuideWindow
 from .quality_ui import QualityWindow
+from .import_ui import ImportWindow
+from .artwork_import import IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
@@ -53,6 +55,7 @@ class Studio:
         self.revision = 0
         self.undo_state = None
         self.assistant = None
+        self.import_windows = []
         self.calibration = {100: data["x_steps_per_mm"], 101: data["y_steps_per_mm"]}
         self.paper_width = tk.StringVar(value=display(data["paper_width_mm"], self.unit))
         self.paper_height = tk.StringVar(value=display(data["paper_height_mm"], self.unit))
@@ -65,7 +68,7 @@ class Studio:
         self.show_travel = tk.BooleanVar(value=False)
         self.show_original = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
-        self.status = tk.StringVar(value="Sample loaded. Import SVG, DXF, or drawing JSON, or create a pattern.")
+        self.status = tk.StringVar(value="Sample loaded. Import artwork or create a pattern.")
         self.stats = tk.StringVar()
         self.metric_points = tk.StringVar()
         self.metric_strokes = tk.StringVar()
@@ -452,6 +455,8 @@ class Studio:
             self.assistant.window.lift()
 
     def shutdown(self):
+        for window in self.import_windows:
+            window.close()
         if self.assistant is not None:
             self.assistant.shutdown()
         self.controls.shutdown()
@@ -511,10 +516,14 @@ class Studio:
             self.status.set("Sample loaded.")
 
     def import_drawing(self) -> None:
-        file = filedialog.askopenfilename(parent=self.root, filetypes=FORMATS)
+        file = filedialog.askopenfilename(parent=self.root, filetypes=IMPORT_FORMATS)
         if not file:
             return
         path = Path(file)
+        if path.suffix.lower() in ('.ai', '.dwg', '.psd', '.pdf', '.png'):
+            self.import_windows = [window for window in self.import_windows if not window.closed]
+            self.import_windows.append(ImportWindow(self, path))
+            return
         try:
             self.set_drawing(path.stem, read_drawing(path))
         except (OSError, ValueError, ParseError) as exc:

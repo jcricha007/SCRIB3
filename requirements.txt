@@ -2,3 +2,5 @@ svgelements==1.9.6
 pyserial==3.5
 ezdxf==1.4.3
 rdp==0.8
+Pillow==13.0.0
+scikit-image==0.26.0
