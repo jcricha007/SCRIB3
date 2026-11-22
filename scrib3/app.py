@@ -20,7 +20,7 @@ from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet
-from .gcode import Machine
+from .gcode import Machine, write_program
 from .firmware import SERVO_PROFILE, ServoSettings
 from .toolpath import PathMetrics, QualityOptions, prepare_toolpath
 from . import theme
@@ -626,8 +626,8 @@ class Studio:
                                             filetypes=[("G-code program", "*.gcode")])
         if file:
             try:
-                Path(file).write_text(program, encoding="ascii", newline="\n")
-            except OSError as exc:
+                write_program(Path(file), program)
+            except (OSError, ValueError) as exc:
                 messagebox.showerror("Save G-code", str(exc), parent=parent)
             else:
                 self.status.set(f"Saved {Path(file).name}.")
