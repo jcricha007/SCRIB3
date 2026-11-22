@@ -105,7 +105,7 @@ SCRIB3_DESKTOP_TESTS=1 .venv-macos/bin/python -m unittest discover -s tests -v
 
 The desktop test uses a simulated serial peer and never opens a physical serial port.
 
-The readiness line on the Control tab explains why normal controls may be waiting, with
+The readiness line on the Control tab shows when the automatic motion baseline is being verified, and explains why normal controls may be waiting, with
 distinct messages for connection, stale status, reset/setup, active jobs, and
 idle with or without a paper origin. A controller in Idle is not by itself a
 verified drawing setup: review paper placement and the job preview before a

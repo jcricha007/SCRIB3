@@ -25,6 +25,8 @@ def machine_readiness(snapshot, *, active=False, scanning=False, closing=False):
         return "Connection fault", "Inspect the connection log. Re-establish position in a fresh session."
     if not active:
         return "Disconnected", "Select a port and connect before using machine controls."
+    if snapshot.get("motion_defaults_verifying") and snapshot.get("motion_defaults_pending"):
+        return "Verifying motion setup", "Checking the automatic motion baseline against the controller readback."
     if not snapshot.get("connected"):
         return "Connecting", "Waiting for GRBL connection and controller settings."
     if snapshot.get("reset_required"):

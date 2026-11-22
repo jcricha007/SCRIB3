@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 from time import monotonic, sleep
 import tkinter as tk
 from unittest import TestCase, skipUnless
@@ -38,7 +39,25 @@ class DesktopTests(TestCase):
         errors = []
         root.report_callback_exception = lambda *args: errors.append(str(args))
         peer = FakeSerial()
-        with patch.object(controls, 'Controller', side_effect=lambda port, baud, **kw: Controller(port, baud, **kw, serial_factory=lambda *a, **k: peer)), patch.object(controls, 'detect', return_value=Device('COM7', 115200, 'GRBL')), patch.object(controls.messagebox, 'showerror', side_effect=lambda *a, **k: errors.append(str(a))):
+        verification_started, finish_verification = Event(), Event()
+        self.addCleanup(finish_verification.set)
+        operate = Controller._operate
+        def pause_verification(session, kind, values):
+            if kind == 'settings' and values.get('automatic'):
+                verification_started.set()
+                if not finish_verification.wait(8):
+                    raise ValueError('Test did not release simulated verification.')
+            return operate(session, kind, values)
+
+        def layout_fits(panel):
+            for geometry in ('1120x740', '800x650'):
+                root.geometry(geometry)
+                root.update()
+                for name, button in panel.buttons.items():
+                    assert button.winfo_rooty() + button.winfo_height() <= panel.winfo_rooty() + panel.winfo_height() - 2, name
+                    assert button.winfo_rootx() + button.winfo_width() <= root.winfo_rootx() + root.winfo_width(), name
+
+        with patch.object(Controller, '_operate', pause_verification), patch.object(controls, 'Controller', side_effect=lambda port, baud, **kw: Controller(port, baud, **kw, serial_factory=lambda *a, **k: peer)), patch.object(controls, 'detect', return_value=Device('COM7', 115200, 'GRBL')), patch.object(controls.messagebox, 'showerror', side_effect=lambda *a, **k: errors.append(str(a))):
             studio = Studio(root, preset_file=preset_file)
             # This control regression uses the original small test sheet.
             studio.paper_width.set(str(148/25.4)); studio.paper_height.set(str(105/25.4))
@@ -57,7 +76,17 @@ class DesktopTests(TestCase):
                         return
                     sleep(.005)
                 raise AssertionError('Desktop condition timed out')
+            root.update()
+            assert panel.state_text.get() == 'Disconnected'
             panel.buttons['Auto detect'].invoke()
+            wait(verification_started.is_set)
+            assert not panel.session.snapshot()['connected']
+            assert panel.state_text.get() == 'Verifying motion setup'
+            assert 'readback' in panel.readiness_text.get()
+            assert panel.buttons['Reset / abort'].winfo_ismapped()
+            assert panel.buttons['X +'].instate(['disabled'])
+            layout_fits(panel)
+            finish_verification.set()
             wait(lambda: panel.session is not None and panel.session.snapshot()['connected'])
             assert studio.baud.get() == '115200' and studio.port.get() == 'COM7'
             assert panel.buttons['Connect'].instate(['disabled'])
@@ -66,6 +95,7 @@ class DesktopTests(TestCase):
             assert studio.feed.get() == '350'
             assert peer.settings[110] == 8890 and peer.settings[111] == 8890
             assert not panel.session.snapshot()['motion_defaults_pending']
+            assert panel.state_text.get() == 'Idle · paper origin not set'
             assert (studio.pen_up.get(), studio.pen_down.get()) == ('M3 S180', 'M3 S70')
             assert panel.buttons['Home'].instate(['disabled'])
             assert panel.buttons['Go to manual home'].instate(['disabled'])
@@ -120,6 +150,7 @@ class DesktopTests(TestCase):
             panel.buttons['Set paper XY zero'].invoke()
             wait(lambda: not panel.session.snapshot()['busy'])
             assert panel.session.snapshot()['work'] == (0, 0, 0)
+            assert panel.state_text.get() == 'Idle · paper origin set'
             studio.firmware.set(SERVO_PROFILE)
             studio.pen_up.set('M3 S180'); studio.pen_down.set('M3 S70')
             panel.buttons['Pen down'].invoke()
@@ -148,12 +179,7 @@ class DesktopTests(TestCase):
             saved = presets.read(preset_file)
             assert saved['units'] == 'in' and saved['pen_down'] == 'M3 S70'
             assert abs(saved['machine_width_mm'] - 200) < .00001
-            for geometry, image in [('1120x740', 'control-desktop.png'), ('800x650', 'control-small.png')]:
-                root.geometry(geometry)
-                root.update()
-                for name, button in panel.buttons.items():
-                    assert button.winfo_rooty() + button.winfo_height() <= panel.winfo_rooty() + panel.winfo_height() - 2, name
-                    assert button.winfo_rootx() + button.winfo_width() <= root.winfo_rootx() + root.winfo_width(), name
+            layout_fits(panel)
 
             assert not errors, errors
             panel.shutdown()

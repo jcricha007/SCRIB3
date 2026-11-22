@@ -25,6 +25,7 @@ class AutomaticMotionTests(TestCase):
         eventually(lambda: session.snapshot()['connected'])
         snap = session.snapshot()
         self.assertFalse(snap['motion_defaults_pending'])
+        self.assertFalse(snap['motion_defaults_verifying'])
         self.assertFalse(snap['busy'])
         self.assertFalse(snap['reset_required'])
         self.assertEqual({n: snap['settings'][n] for n in SMOOTH_SETTINGS}, SMOOTH_SETTINGS)
@@ -97,6 +98,7 @@ class AutomaticMotionTests(TestCase):
                 snap = session.snapshot()
                 self.assertFalse(snap['connected'])
                 self.assertTrue(snap['motion_defaults_pending'])
+                self.assertFalse(snap['motion_defaults_verifying'])
                 self.assertIn('Automatic motion setup failed', snap['fault'])
                 self.assertEqual(peer.writes.count(b'$110=8890\n'), 1)
                 if reply == 'error:3':
@@ -112,9 +114,11 @@ class AutomaticMotionTests(TestCase):
         eventually(lambda: self.writes(peer))
         self.assertFalse(session.snapshot()['connected'])
         self.assertTrue(session.snapshot()['busy'])
+        self.assertTrue(session.snapshot()['motion_defaults_verifying'])
         with self.assertRaises(ValueError):
             session.request('zero')
         session.close(); session.thread.join(2)
         self.assertEqual(self.writes(peer), [b'$11=0.02\n'])
         self.assertIn(b'\x18', peer.writes)
         self.assertFalse(session.snapshot()['connected'])
+        self.assertFalse(session.snapshot()['motion_defaults_verifying'])

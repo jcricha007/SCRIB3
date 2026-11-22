@@ -149,6 +149,7 @@ class Controller:
         self.connected = False
         self.busy = True
         self.motion_defaults_pending = bool(apply_motion_defaults)
+        self.motion_defaults_verifying = False
         self.fault = ""
         self.state = "Connecting"
         self.status: Status | None = None
@@ -204,6 +205,7 @@ class Controller:
                         work=work, machine=machine, manual_home=self.manual_home, pins=status.pins if status else "",
                         settings=dict(self.settings), reset_required=self.reset_required, last_result=self.last_result,
                         motion_defaults_pending=self.motion_defaults_pending,
+                        motion_defaults_verifying=self.motion_defaults_verifying,
                         origin_set=self.origin_set, reference=self.reference, job=dict(self.job),
                         report=self.report, log="\n".join(self.log))
 
@@ -605,6 +607,7 @@ class Controller:
                     self.reset_required or self.connected and self.busy):
                 return
             self.busy = True
+            self.motion_defaults_verifying = True
         self._note('Checking automatic controller motion baseline: 350 in/min.')
         self.events.put(('motion_defaults', 'Applying motion baseline and verifying controller readback…'))
         try:
@@ -613,9 +616,13 @@ class Controller:
                 raise ValueError('Controller motion baseline readback did not match the requested values.')
         except ValueError as exc:
             raise ValueError(f'Automatic motion setup failed: {exc} Reconnect after correcting the controller problem.') from exc
-        with self.lock:
-            self.motion_defaults_pending = False
-            self.busy = False
+        else:
+            with self.lock:
+                self.motion_defaults_pending = False
+                self.busy = False
+        finally:
+            with self.lock:
+                self.motion_defaults_verifying = False
         self._note('Automatic motion baseline verified.')
         self.events.put(('motion_defaults', '350 in/min controller baseline verified. Ready to set home or jog.'))
 
