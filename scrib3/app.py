@@ -13,7 +13,7 @@ from .job_ui import JobWindow
 from .setup_guides import MotionDefaultsWindow, PaperGuideWindow
 from .quality_ui import QualityWindow
 from .import_ui import ImportWindow
-from .artwork_import import IMPORT_FORMATS
+from .artwork_import import CONVERSION_EXTENSIONS, IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner
 from .units import UNIT_NAMES, display, from_mm, to_mm
@@ -520,7 +520,7 @@ class Studio:
         if not file:
             return
         path = Path(file)
-        if path.suffix.lower() in ('.ai', '.dwg', '.psd', '.pdf', '.png'):
+        if path.suffix.lower() in CONVERSION_EXTENSIONS:
             self.import_windows = [window for window in self.import_windows if not window.closed]
             self.import_windows.append(ImportWindow(self, path))
             return

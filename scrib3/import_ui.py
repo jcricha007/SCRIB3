@@ -7,7 +7,7 @@ from tkinter import ttk
 
 from .artwork_import import ImportOptions, read_artwork
 from .drawing import Sheet, fit_to_sheet
-from .raster import TraceOptions
+from .raster import RASTER_FORMATS, TraceOptions
 
 
 class ImportWindow:
@@ -29,7 +29,7 @@ class ImportWindow:
         ttk.Label(panel, text=self.path.name, style='Title.TLabel', wraplength=740).pack(anchor='w')
         ttk.Label(panel, text='Preview the converted paths, then apply them to your drawing.',
                   style='Muted.TLabel').pack(anchor='w', pady=(2, 12))
-        raster = self.path.suffix.lower() in ('.png', '.psd')
+        raster = self.path.suffix.lower() in RASTER_FORMATS
         paged = self.path.suffix.lower() in ('.pdf', '.ai')
         self.method = tk.StringVar(value='Trace image' if raster else 'Vector paths')
         self.page = tk.StringVar(value='1')

@@ -2,8 +2,9 @@
 
 SCRIB3 is a desktop workbench for Arduino pen plotters on Windows and macOS. It combines vector design tools, local Ollama chat and drawing proposals, toolpath preview, SVG/G-code export, guided travel calibration, direct plotter control, saved presets, and metric/imperial units.
 
-**Import drawing** accepts SVG, AI, DWG, PSD, PDF and PNG, plus DXF and drawing
-JSON. PNG/PSD artwork is traced with a source/path comparison before applying.
+**Import drawing** accepts SVG, AI, DWG, PSD, PDF, DXF, and drawing JSON, plus
+PNG, JPEG, BMP, static WebP, and single-page TIFF. Raster artwork (including PSD)
+is traced with a source/path comparison before applying.
 PDF/AI can preserve vector paths or trace a selected rendered page. PDF/AI require
 Inkscape; DWG requires LibreDWG; legacy PostScript AI also needs Ghostscript.
 See [artwork import and converter setup](docs/artwork-import.md) for supported
@@ -66,7 +67,7 @@ Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a
 
 ## Make a drawing
 
-1. Load the sample, import artwork (SVG, AI, DWG, PSD, PDF, PNG, DXF or drawing JSON), create a Grid/Spiral/Rosette on **Design**, or open the Ollama assistant. Review the conversion preview when importing a new artwork format. In **Create / revise**, request new line art or revise the workspace drawing; inspect the proposal and choose **Use drawing in workspace**. Chat can help develop the brief. AI responses cannot operate the controller.
+1. Load the sample, import artwork (see [supported formats](docs/artwork-import.md)), create a Grid/Spiral/Rosette on **Design**, or open the Ollama assistant. Review the conversion preview when importing a new artwork format. In **Create / revise**, request new line art or revise the workspace drawing; inspect the proposal and choose **Use drawing in workspace**. Chat can help develop the brief. AI responses cannot operate the controller.
 2. Set paper size and margin, then select **Fit to paper**. The drawing scales proportionally using its artwork bounds. Rotate or mirror it, use **Undo design** to restore the previous source, and **Export drawing** to save the fitted geometry. **Show pen-up travel** reveals moves between strokes.
 3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then connect on **Control** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
 4. Use **Control → Set home** (or **Paper XY zero**) at the paper corner selected in Paper guide—top-left for John's setup, then select **Review G-code**. The review starts with **Pen-up test** selected; leave it selected for the first trial, or uncheck it to draw with ink. Choose **Run sketch** to execute in SCRIB3, or **Save .gcode** to export the reviewed mode. The job uses absolute coordinates in the selected units and G54, with the selected paper mapping. John's setup plots into **−X and +Y** from top-left home. [Running sketches](docs/running-sketches.md)

@@ -11,12 +11,16 @@ from time import monotonic
 from xml.etree import ElementTree
 
 from .drawing import read_svg
-from .raster import TraceOptions, check_cancel, load_raster, trace_image
+from .raster import RASTER_FORMATS, TraceOptions, check_cancel, load_raster, trace_image
 from .vector_io import MAX_FILE_BYTES, checked_drawing, read_drawing, read_dxf
 
-IMPORT_FORMATS = [('Supported artwork', '*.svg *.ai *.dwg *.psd *.pdf *.png *.dxf *.json'),
+VECTOR_EXTENSIONS = {'.svg', '.dxf', '.json'}
+CONVERSION_EXTENSIONS = frozenset({'.ai', '.dwg', '.pdf', *RASTER_FORMATS})
+IMPORT_FORMATS = [('Supported artwork', ' '.join('*' + suffix for suffix in
+                                                sorted(VECTOR_EXTENSIONS | CONVERSION_EXTENSIONS))),
                   ('SVG', '*.svg'), ('Adobe Illustrator', '*.ai'), ('AutoCAD DWG', '*.dwg'),
-                  ('Photoshop', '*.psd'), ('PDF', '*.pdf'), ('PNG image', '*.png'),
+                  ('Photoshop', '*.psd'), ('PDF', '*.pdf'),
+                  ('Raster images', '*.png *.jpg *.jpeg *.bmp *.webp *.tif *.tiff'),
                   ('DXF', '*.dxf'), ('SCRIB3 drawing JSON', '*.json')]
 MAX_IMPORT_BYTES = 64_000_000
 CONVERTER_TIMEOUT = 90
@@ -220,19 +224,19 @@ def read_converted_dwg(path):
 def read_artwork(path, options=None, cancel=None):
     path = Path(path)
     extension = path.suffix.lower()
-    if extension not in {'.svg', '.ai', '.dwg', '.psd', '.pdf', '.png', '.dxf', '.json'}:
-        raise ValueError('Choose SVG, AI, DWG, PSD, PDF, PNG, DXF, or drawing JSON.')
+    if extension not in VECTOR_EXTENSIONS | CONVERSION_EXTENSIONS:
+        raise ValueError('Choose supported vector, document, or raster artwork.')
     if path.stat().st_size > MAX_IMPORT_BYTES:
         raise ValueError('Choose artwork under 64 MB.')
-    options = options or ImportOptions(method='Trace image' if extension in ('.png', '.psd') else 'Vector paths')
+    options = options or ImportOptions(method='Trace image' if extension in RASTER_FORMATS else 'Vector paths')
     check_cancel(cancel)
-    if extension in ('.svg', '.dxf', '.json'):
+    if extension in VECTOR_EXTENSIONS:
         if options.method != 'Vector paths':
             raise ValueError('Use Vector paths for SVG, DXF and drawing JSON.')
         return ImportResult(read_drawing(path), 'Vector paths preserved; artwork is fitted to paper when applied.')
-    if extension in ('.png', '.psd'):
+    if extension in RASTER_FORMATS:
         if options.method != 'Trace image':
-            raise ValueError('PNG and PSD are raster artwork. Choose Trace image.')
+            raise ValueError('Raster artwork requires Trace image.')
         drawing, image = trace_image(load_raster(path), options.trace, cancel)
         detail = 'PSD uses its saved merged composite. ' if extension == '.psd' else ''
         return ImportResult(drawing, detail + f'{options.trace.mode} trace at {image.width} x {image.height} pixels. '

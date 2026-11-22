@@ -1,7 +1,7 @@
 # Import artwork
 
 Choose **Import drawing**. SVG, DXF and drawing JSON use the existing vector
-workflow. AI, DWG, PSD, PDF and PNG open a conversion preview. Conversion runs
+workflow. AI, DWG, PSD, PDF and raster images open a conversion preview. Conversion runs
 locally in a worker so the desktop stays responsive. The workspace changes only
 after **Use drawing**; **Undo design** restores the previous source. Closing or
 cancelling the dialog discards its result. Changing tracing settings or changing
@@ -19,10 +19,12 @@ dry-run and machine checks still apply. Importing never sends motion commands.
 | PSD | Pillow saved merged image, then tracing | Supported 8-bit RGB/gray/CMYK PSD composites. Enable **Maximize Compatibility** when saving in Photoshop. Layers, editable text and Photoshop effects are represented by the saved composite; they are not imported as editable objects. Unsupported PSD modes should be exported as PNG. |
 | PDF | Inkscape Poppler import | Select one page. Vector mode preserves path geometry; text becomes glyph outlines. Use **Trace image** for scanned documents, embedded images or clipped/masked artwork that the vector reader rejects. |
 | PNG | Pillow, then tracing | Grayscale/RGB/RGBA images; transparency is composited against the selected light/dark background. |
+| JPEG/JPG, BMP | Pillow, then tracing | Direct local decoding. JPEG EXIF orientation is honored. |
+| WebP, TIFF/TIF | Pillow, then tracing | Static WebP and single-page TIFF only; export an individual frame/page as PNG when needed. |
 | DXF / JSON | Existing readers | See [vector formats](vector-formats.md). |
 
 Vector mode plots outlines, not colors, filled shading or line-weight changes.
-Raster tracing approximates the visible image; it cannot recover exact curves
+Raster extensions must match the actual file contents. Raster tracing approximates the visible image; it cannot recover exact curves
 or details absent from the source. Large solid areas are especially different
 between the two trace modes. Compare the source image and pen paths before
 applying. Multi-pen/color separation is not part of this import pass.
@@ -80,7 +82,7 @@ executable path before starting SCRIB3:
 
 Converters run as separate processes, with argument lists (no shell), temporary
 input/output copies, cancellation and a 90-second limit per conversion stage.
-Original files are not overwritten. Missing tools and failed conversions produce
+Direct raster formats use the existing Pillow decoder, not a subprocess. Original files are not overwritten. Missing tools and failed conversions produce
 an explanation in the preview dialog. No file is uploaded to a conversion service.
 LibreDWG can emit null DXF identifiers and repeat identifiers on block-end markers.
 SCRIB3 regenerates those identifiers above all existing IDs on the temporary copy
@@ -110,7 +112,7 @@ additional candidates:
 | Resource | Decision |
 | --- | --- |
 | [Inkscape](https://wiki.inkscape.org/wiki/Using_the_Command_Line) | Integrated as the PDF/AI conversion process. Native command-line tests determine supported flags and page-error behavior. |
-| [Pillow](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html) | Integrated for PNG and saved PSD composite decoding, alpha handling and downsampling. |
+| [Pillow](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html) | Integrated for raster decoding (including saved PSD composites), alpha handling and downsampling. |
 | [scikit-image](https://scikit-image.org/docs/stable/api/skimage.morphology.html#skimage.morphology.skeletonize) | Integrated for skeletonization, contours and polyline simplification. |
 | [LibreDWG](https://www.gnu.org/software/libredwg/) | Integrated as an optional external DWG-to-DXF converter. |
 | [AutoTrace](https://github.com/autotrace/autotrace) | Reviewed its centerline/outline and despeckle workflow. The initial built-in tracer uses scikit-image, avoiding another native install for PNG/PSD. |
