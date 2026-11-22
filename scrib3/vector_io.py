@@ -6,12 +6,10 @@ contains geometry only; machine commands and settings are never imported.
 from __future__ import annotations
 
 import json
-import os
-from stat import S_IMODE, S_ISREG
-from tempfile import TemporaryDirectory
 from math import isfinite, tau
 from pathlib import Path
 
+from .atomic_export import write_atomic_export
 from .drawing import Drawing, MAX_POINTS, MAX_STROKES, Sheet, read_svg
 
 MAX_FILE_BYTES = 10_000_000
@@ -185,36 +183,13 @@ def read_dxf(path: Path) -> Drawing:
         raise ValueError('Cannot read DXF geometry. Re-export as a plain 2D DXF.') from exc
 
 
-def _export_target(path):
-    try:
-        status = path.lstat()
-    except FileNotFoundError:
-        return None
-    if not S_ISREG(status.st_mode):
-        raise ValueError('Export to a regular drawing file, not a link or directory.')
-    if not os.access(path, os.W_OK):
-        raise PermissionError('The destination drawing is not writable.')
-    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns,
-            status.st_ctime_ns, S_IMODE(status.st_mode))
-
-
 def write_drawing(path: Path, drawing: Drawing, sheet: Sheet) -> None:
     """Render into a sibling staging folder before replacing the destination."""
     drawing = checked_drawing(drawing)
     extension = path.suffix.lower()
     if extension not in ('.svg', '.json', '.dxf'):
         raise ValueError('Use a .svg, .dxf, or .json extension.')
-    original = _export_target(path)
-    # A same-directory staging folder gives replace() a same-filesystem target.
-    # On Windows all encoder file handles are closed before replace().
-    with TemporaryDirectory(prefix='.scrib3-export-', dir=path.parent) as folder:
-        staged = Path(folder) / ('drawing' + extension)
-        _write_drawing_file(staged, extension, drawing, sheet)
-        if _export_target(path) != original:
-            raise ValueError('The destination changed during export. Choose Save again.')
-        if original is not None:
-            staged.chmod(original[-1] & 0o777)
-        staged.replace(path)
+    write_atomic_export(path, lambda staged: _write_drawing_file(staged, extension, drawing, sheet))
 
 
 def _write_drawing_file(path, extension, drawing, sheet):

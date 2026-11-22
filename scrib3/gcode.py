@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from math import dist, isfinite
+from pathlib import Path
 
+from .atomic_export import write_atomic_export
 from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
 from .units import factor
@@ -96,6 +98,12 @@ class GcodeReview:
         if self.rounded_xy_duplicates:
             rows.append(f"Adjacent points at the same output XY position: {self.rounded_xy_duplicates:,}.")
         return "\n".join(rows)
+
+
+def write_program(path: Path, program: str) -> None:
+    """Save the exact reviewed ASCII program without re-generating it."""
+    payload = program.encode("ascii")
+    write_atomic_export(path, lambda staged: staged.write_bytes(payload))
 
 
 def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = "mm", *, dry_run: bool = False) -> str:
