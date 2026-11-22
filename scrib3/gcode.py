@@ -7,6 +7,7 @@ from math import dist, isfinite
 from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
 from .units import factor
+from .gcode_preflight import ProgramPreflight, verify_program
 from .paper_mount import machine_point, required_travel, validate_mount
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
@@ -84,10 +85,12 @@ class GcodeReview:
     strokes_in: int
     strokes_omitted: int
     rounded_xy_duplicates: int
+    preflight: ProgramPreflight
 
     def summary(self) -> str:
         rows = [f"Output coordinates: {self.coordinate_step:g} {self.units} grid.",
                 f"Strokes in output: {self.strokes_in - self.strokes_omitted:,} of {self.strokes_in:,}."]
+        rows.append(f"Offline preflight passed: {self.preflight.plotted_segments:,} linear drawing segments.")
         if self.strokes_omitted:
             rows.append(f"Warning: {self.strokes_omitted:,} stroke(s) have no XY motion at this precision and will not be drawn.")
         if self.rounded_xy_duplicates:
@@ -155,8 +158,10 @@ def review_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = 
         actuate(machine.up)
     if omitted == len(drawing):
         raise ValueError(f"No stroke is long enough to plot at {10 ** -precision:g} {units} resolution.")
-    return GcodeReview("\n".join(lines) + "\n", units, 10 ** -precision,
-                       len(drawing), omitted, duplicates)
+    program = "\n".join(lines) + "\n"
+    preflight = verify_program(program, units=units, machine=machine,
+                               expected_strokes=len(drawing) - omitted, dry_run=dry_run)
+    return GcodeReview(program, units, 10 ** -precision, len(drawing), omitted, duplicates, preflight)
 
 
 def overlap_closed_stroke(stroke, distance):
