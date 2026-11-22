@@ -135,3 +135,16 @@ in strokes that remain. An entirely unplottable drawing is still refused.
 The summary does not become part of the saved .gcode, change settings, or
 connect to a controller. It describes **file coordinate rounding**, not the
 machine's steps per unit, pen width, or physical accuracy.
+
+### Offline G-code preflight
+
+SCRIB3 checks its generated program before Review, export, or job streaming.
+It reads back the actual serialized command text to check explicit units/modes,
+XY travel for the selected paper mounting, the pen-up travel / linear draw /
+pen-up sequence, explicit first-segment feed, dry-run lift state, and line
+limits. The review shows the number of emitted linear segments; the exported
+program does not contain this report.
+
+This check is for SCRIB3's own restricted generated program. It is not an
+arbitrary G-code importer or the controller's parser, and it does not verify
+machine homing, usable physical travel, work offsets, or calibration.
