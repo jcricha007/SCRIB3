@@ -13,6 +13,7 @@ from .grbl import ports
 from .units import display, from_mm, to_mm, setting_display, setting_native, setting_label
 from .calibration_ui import CalibrationWindow
 from .theme import BACKGROUND, MUTED
+from .machine_readiness import machine_readiness
 
 
 class ControlPanel(ttk.Frame):
@@ -29,7 +30,9 @@ class ControlPanel(ttk.Frame):
         self.step = tk.StringVar(value=display(studio.initial_preset["jog_step_mm"], studio.unit))
         self.rate = tk.StringVar(value=display(studio.initial_preset["jog_feed_mm_min"], studio.unit))
         self.connection_text = tk.StringVar(value="Select a port, or use Auto detect.")
-        self.state_text = tk.StringVar(value="Disconnected")
+        title, guidance = machine_readiness({})
+        self.state_text = tk.StringVar(value=title)
+        self.readiness_text = tk.StringVar(value=guidance)
         self.position_text = tk.StringVar(value="Work XY: —\nMachine XY: —")
         self.pin_text = tk.StringVar(value="Limit inputs: —")
         self.buttons = {}
@@ -57,7 +60,11 @@ class ControlPanel(ttk.Frame):
         tk.Label(connection, textvariable=self.connection_text, wraplength=330, height=2,
                  justify="left", anchor="w", background=BACKGROUND, foreground=MUTED).grid(row=2, columnspan=2, sticky="w", pady=(4, 0))
 
-        ttk.Label(self, textvariable=self.state_text, style="Title.TLabel").grid(row=1, columnspan=3, sticky="w", pady=(4, 0))
+        readiness = ttk.Frame(self)
+        readiness.grid(row=1, columnspan=3, sticky="ew", pady=(4, 0))
+        ttk.Label(readiness, textvariable=self.state_text, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(readiness, textvariable=self.readiness_text, style="Muted.TLabel",
+                  wraplength=330, justify="left").pack(anchor="w")
         ttk.Label(self, textvariable=self.position_text, font="TkFixedFont").grid(row=2, columnspan=3, sticky="w")
         ttk.Label(self, textvariable=self.pin_text, style="Muted.TLabel").grid(row=3, columnspan=3, sticky="w")
         jog = ttk.Frame(self)
@@ -348,9 +355,9 @@ class ControlPanel(ttk.Frame):
         ready = snap.get("connected", False) and not snap.get("busy", True) and fresh
         state = snap.get("state", "Disconnected")
         needs_reset = snap.get("reset_required", False)
-        self.state_text.set("Reset required after calibration" if needs_reset else state + (" · waiting for status" if active and not fresh else ""))
-        if snap.get('connected') and snap.get('motion_defaults_pending') and not needs_reset:
-            self.state_text.set(state + ' · motion setup pending')
+        title, guidance = machine_readiness(snap, active=active, scanning=self.scanning, closing=self.closing)
+        self.state_text.set(title)
+        self.readiness_text.set(guidance)
         def xy(position):
             return f"X {from_mm(position[0], self.studio.unit):9.4f}   Y {from_mm(position[1], self.studio.unit):9.4f}" if position and fresh else "—"
         self.position_text.set(f"Work {self.studio.unit}: {xy(snap.get('work'))}\nMach {self.studio.unit}: {xy(snap.get('machine'))}")
