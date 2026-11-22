@@ -76,7 +76,32 @@ class Machine:
         object.__setattr__(self, "down", down)
 
 
+@dataclass(frozen=True)
+class GcodeReview:
+    program: str
+    units: str
+    coordinate_step: float
+    strokes_in: int
+    strokes_omitted: int
+    rounded_xy_duplicates: int
+
+    def summary(self) -> str:
+        rows = [f"Output coordinates: {self.coordinate_step:g} {self.units} grid.",
+                f"Strokes in output: {self.strokes_in - self.strokes_omitted:,} of {self.strokes_in:,}."]
+        if self.strokes_omitted:
+            rows.append(f"Warning: {self.strokes_omitted:,} stroke(s) have no XY motion at this precision and will not be drawn.")
+        if self.rounded_xy_duplicates:
+            rows.append(f"Adjacent points at the same output XY position: {self.rounded_xy_duplicates:,}.")
+        return "\n".join(rows)
+
+
 def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = "mm", *, dry_run: bool = False) -> str:
+    """Keep the command-only API for exports and plot jobs."""
+    return review_gcode(drawing, sheet, machine, units, dry_run=dry_run).program
+
+
+def review_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = "mm", *, dry_run: bool = False) -> GcodeReview:
+    """Generate commands and describe lost XY motion from the same pass."""
     scale = factor(units)
     precision = 5 if units == "in" else 3
     def coordinate(value):
@@ -101,7 +126,7 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
             lines.append(f"G4 P{machine.settle:.3f}")
 
     actuate(machine.up)
-    plotted = False
+    omitted = duplicates = 0
     for stroke in drawing:
         # Only exact, explicitly closed source loops get overlap. Do not infer
         # closure from rounded coordinates or bridge deliberate small gaps.
@@ -116,7 +141,10 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
                 raise ValueError("A rounded plotting point is outside usable X/Y travel.")
             if not points or point != points[-1]:
                 points.append(point)
+            else:
+                duplicates += 1
         if len(points) < 2:
+            omitted += 1
             continue
         x, y = points[0]
         lines.append(f"G0 X{coordinate(x)} Y{coordinate(y)}")
@@ -125,10 +153,10 @@ def generate_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str 
             feed = f" F{coordinate(machine.feed)}" if index == 0 else ""
             lines.append(f"G1 X{coordinate(x)} Y{coordinate(y)}{feed}")
         actuate(machine.up)
-        plotted = True
-    if not plotted:
+    if omitted == len(drawing):
         raise ValueError(f"No stroke is long enough to plot at {10 ** -precision:g} {units} resolution.")
-    return "\n".join(lines) + "\n"
+    return GcodeReview("\n".join(lines) + "\n", units, 10 ** -precision,
+                       len(drawing), omitted, duplicates)
 
 
 def overlap_closed_stroke(stroke, distance):

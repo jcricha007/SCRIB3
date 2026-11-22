@@ -124,3 +124,14 @@ overdraw. The last column removes one explicitly duplicated stroke from each
 fixture. Tests also cover reversed fragments, cycles, repeated loop vertices,
 2,000-fragment chains, both paper origins, G-code units/mounts, dry runs, SVG
 export/reimport, preset migration and stale-review prevention.
+
+### Check exported coordinate precision in Review G-code
+
+The G-code review starts with the coordinate grid and a stroke count from the
+same commands shown below it. If a short stroke becomes a single XY
+position after rounding, it is omitted and the review shows a warning. The
+summary also counts adjacent points that share an output position, including
+in strokes that remain. An entirely unplottable drawing is still refused.
+The summary does not become part of the saved .gcode, change settings, or
+connect to a controller. It describes **file coordinate rounding**, not the
+machine's steps per unit, pen width, or physical accuracy.

@@ -559,26 +559,29 @@ class Studio:
             snap = session.snapshot() if session else {}
             job = PlotJob(self.drawing, self.sheet, machine, self.unit, True,
                           tuple(sorted(snap.get('settings', {}).items())), snap.get('reference', -1))
-            program = job.program()
+            review = job.review()
+            program = review.program
         except ValueError as exc:
             error = str(exc)
             if "could not convert string to float" in error:
                 error = "Enter the plotter’s X/Y travel, draw feed, and verified pen commands on the Machine tab."
             messagebox.showerror("Review G-code", error, parent=self.root)
             return
-        def preview(program):
-            lines = program.splitlines()
-            return "\n".join(lines[:400]) + (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else '')
-        dialog, controls = self.text_dialog("G-code review / Run sketch", preview(program))
+        def preview(review):
+            lines = review.program.splitlines()
+            return (review.summary() + "\n\n" + "\n".join(lines[:400]) +
+                    (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else ''))
+        dialog, controls = self.text_dialog("G-code review / Run sketch", preview(review))
         dialog.geometry('680x540')
         dry_run = tk.BooleanVar(value=True)
         def update_preview():
             nonlocal job, program
             job = replace(job, dry_run=dry_run.get())
-            program = job.program()
+            review = job.review()
+            program = review.program
             dialog.output.configure(state='normal')
             dialog.output.delete('1.0', 'end')
-            dialog.output.insert('1.0', preview(program))
+            dialog.output.insert('1.0', preview(review))
             dialog.output.configure(state='disabled')
         ttk.Checkbutton(controls, text='Pen-up test (uncheck to draw with ink)', variable=dry_run,
                         command=update_preview).pack(anchor='w')

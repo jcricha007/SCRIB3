@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 from .drawing import Drawing, Sheet
-from .gcode import Machine, generate_gcode
+from .gcode import Machine, review_gcode
 
 
 @dataclass(frozen=True)
@@ -15,8 +15,11 @@ class PlotJob:
     settings: tuple
     reference: int
 
+    def review(self):
+        return review_gcode(self.drawing, self.sheet, self.machine, self.units, dry_run=self.dry_run)
+
     def program(self):
-        return generate_gcode(self.drawing, self.sheet, self.machine, self.units, dry_run=self.dry_run)
+        return self.review().program
 
     def commands(self):
         lines = tuple(line for line in self.program().splitlines() if line and not line.startswith('('))
