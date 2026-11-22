@@ -148,3 +148,9 @@ program does not contain this report.
 This check is for SCRIB3's own restricted generated program. It is not an
 arbitrary G-code importer or the controller's parser, and it does not verify
 machine homing, usable physical travel, work offsets, or calibration.
+
+### Controller acceptance is separate
+
+Offline preflight is not a GRBL parser run or a physical plot. Stock GRBL check mode parses commands without normal motion, but exiting check mode causes a soft reset. On the documented RC-servo fork, reset selects the M5 servo position, which is not the configured pen-up preset. A parser check should not be treated as an actuator-still session from start to finish. Verify the fork and its reset behavior separately, and re-establish a known safe pen position and reference before any motion test.
+
+[GRBL check-mode reference](https://github.com/gnea/grbl/blob/master/doc/markdown/interface.md#g-code-error-handling) · [SCRIB3 firmware behavior](firmware.md)
