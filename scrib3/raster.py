@@ -1,11 +1,17 @@
 """Reviewed raster-to-pen-path conversion using Pillow and scikit-image."""
 from dataclasses import dataclass
+from pathlib import Path
 
 from .drawing import MAX_POINTS, MAX_STROKES
 from .vector_io import checked_drawing
 
 MAX_IMAGE_PIXELS = 25_000_000
 MAX_TRACE_NODES = 200_000
+
+RASTER_FORMATS = {
+    '.png': 'PNG', '.psd': 'PSD', '.jpg': 'JPEG', '.jpeg': 'JPEG',
+    '.bmp': 'BMP', '.webp': 'WEBP', '.tif': 'TIFF', '.tiff': 'TIFF',
+}
 
 
 class ImportCancelled(ValueError):
@@ -40,18 +46,25 @@ class TraceOptions:
 
 def load_raster(path):
     from PIL import Image, ImageOps, UnidentifiedImageError
+    path = Path(path)
+    expected = RASTER_FORMATS.get(path.suffix.lower())
+    if expected is None:
+        raise ValueError('Choose a supported raster artwork extension.')
     try:
-        with Image.open(path) as image:
-            if image.format not in ('PNG', 'PSD'):
-                raise ValueError('The file contents are not PNG or PSD artwork.')
+        # Restrict format probing to the intended raster decoder. Renamed files
+        # must not silently take a different import route.
+        with Image.open(path, formats=(expected,)) as image:
             if image.width * image.height > MAX_IMAGE_PIXELS:
                 raise ValueError('Resize the image to 25 million pixels or fewer before importing.')
+            if expected in ('TIFF', 'WEBP') and getattr(image, 'is_animated', False):
+                raise ValueError('Choose a single-page TIFF or a static WebP; export the desired page or frame as PNG.')
             # Image.open() starts at the PSD merged composite. PSD seek() selects
             # individual layers and some documents have no seekable layer zero.
             return ImageOps.exif_transpose(image).convert('RGBA')
     except (UnidentifiedImageError, OSError, EOFError, Image.DecompressionBombError) as exc:
-        raise ValueError('Cannot decode this image. For PSD, save an 8-bit RGB/gray file '
-                         'with Maximize Compatibility enabled, or export PNG.') from exc
+        detail = (' For PSD, save an 8-bit RGB/gray file with Maximize Compatibility enabled, or export PNG.'
+                  if expected == 'PSD' else ' Check the file extension or export a fresh PNG.')
+        raise ValueError(f'Cannot decode this image as {expected}.' + detail) from exc
 
 
 def _skeleton_paths(mask, cancel):

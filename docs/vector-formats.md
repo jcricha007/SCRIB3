@@ -1,6 +1,6 @@
 # Vector drawings and closed-loop seams
 
-Use **Import drawing** for SVG, AI, DWG, PSD, PDF, PNG, DXF, or SCRIB3 drawing JSON.
+Use **Import drawing** for SVG, AI, DWG, PSD, PDF, PNG, JPEG, BMP, static WebP, single-page TIFF, DXF, or SCRIB3 drawing JSON.
 The [artwork import guide](artwork-import.md) describes converter installation,
 page selection, image tracing and format limitations. All files are fitted
 proportionally to the current paper and margin using their artwork bounds.
@@ -51,8 +51,8 @@ No commands, scripts, or machine settings are accepted.
 
 SVG is the most convenient format for new designs in chat: it supports exact
 circles and curves, previews in common tools, and imports here. DXF is useful
-for CAD drawings. PNG and the saved merged PSD image can now be traced directly
-inside SCRIB3. Convert JPEG to PNG before importing.
+for CAD drawings. Supported raster images and the saved merged PSD image can be traced directly
+inside SCRIB3.
 
 ## Closing small gaps
 
