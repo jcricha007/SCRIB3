@@ -6,6 +6,9 @@ contains geometry only; machine commands and settings are never imported.
 from __future__ import annotations
 
 import json
+import os
+from stat import S_IMODE, S_ISREG
+from tempfile import TemporaryDirectory
 from math import isfinite, tau
 from pathlib import Path
 
@@ -182,12 +185,41 @@ def read_dxf(path: Path) -> Drawing:
         raise ValueError('Cannot read DXF geometry. Re-export as a plain 2D DXF.') from exc
 
 
-def write_drawing(path: Path, drawing: Drawing, sheet: Sheet) -> None:
-    from .design import svg_document
+def _export_target(path):
+    try:
+        status = path.lstat()
+    except FileNotFoundError:
+        return None
+    if not S_ISREG(status.st_mode):
+        raise ValueError('Export to a regular drawing file, not a link or directory.')
+    if not os.access(path, os.W_OK):
+        raise PermissionError('The destination drawing is not writable.')
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns,
+            status.st_ctime_ns, S_IMODE(status.st_mode))
 
+
+def write_drawing(path: Path, drawing: Drawing, sheet: Sheet) -> None:
+    """Render into a sibling staging folder before replacing the destination."""
     drawing = checked_drawing(drawing)
     extension = path.suffix.lower()
+    if extension not in ('.svg', '.json', '.dxf'):
+        raise ValueError('Use a .svg, .dxf, or .json extension.')
+    original = _export_target(path)
+    # A same-directory staging folder gives replace() a same-filesystem target.
+    # On Windows all encoder file handles are closed before replace().
+    with TemporaryDirectory(prefix='.scrib3-export-', dir=path.parent) as folder:
+        staged = Path(folder) / ('drawing' + extension)
+        _write_drawing_file(staged, extension, drawing, sheet)
+        if _export_target(path) != original:
+            raise ValueError('The destination changed during export. Choose Save again.')
+        if original is not None:
+            staged.chmod(original[-1] & 0o777)
+        staged.replace(path)
+
+
+def _write_drawing_file(path, extension, drawing, sheet):
     if extension == '.svg':
+        from .design import svg_document
         path.write_text(svg_document(drawing, sheet), encoding='utf-8')
     elif extension == '.json':
         data = {'format': 'scrib3-drawing', 'version': 1, 'units': 'mm', 'strokes': [
@@ -195,7 +227,7 @@ def write_drawing(path: Path, drawing: Drawing, sheet: Sheet) -> None:
              'points': [[x, sheet.height-y] for x, y in (stroke[:-1] if stroke[0] == stroke[-1] else stroke)]}
             for stroke in drawing]}
         path.write_text(json.dumps(data, separators=(',', ':'), allow_nan=False)+'\n', encoding='utf-8')
-    elif extension == '.dxf':
+    else:
         import ezdxf
         doc = ezdxf.new('R2010')
         doc.units = ezdxf.units.MM
@@ -204,5 +236,3 @@ def write_drawing(path: Path, drawing: Drawing, sheet: Sheet) -> None:
             closed = stroke[0] == stroke[-1]
             model.add_lwpolyline(stroke[:-1] if closed else stroke, close=closed)
         doc.saveas(path)
-    else:
-        raise ValueError('Use a .svg, .dxf, or .json extension.')

@@ -8,6 +8,9 @@ Import is not a 1:1 CAD-scale workflow. Review the preview before running.
 **Export drawing** saves the fitted geometry to SVG, DXF or drawing JSON.
 The file extension selects the format. Exports contain geometry, not controller
 settings, paper zero, or a runnable job. Use Review G-code for machine output.
+Exports are staged beside the destination and replace it only after the drawing
+has been encoded. A save failure leaves an existing file intact; export refuses
+links, directories, and destinations observed to change while saving.
 
 | Format | Supported content |
 | --- | --- |
