@@ -92,8 +92,8 @@ class DesktopTests(TestCase):
             assert panel.buttons['Connect'].instate(['disabled'])
             assert '0.3543' in panel.position_text.get()
             assert studio.unit == 'in'
-            assert studio.feed.get() == '350'
-            assert peer.settings[110] == 8890 and peer.settings[111] == 8890
+            assert abs(to_mm(studio.feed.get(), studio.unit) - 1500) < 0.00001
+            assert peer.settings[110] == 1500 and peer.settings[111] == 1500
             assert not panel.session.snapshot()['motion_defaults_pending']
             assert panel.state_text.get() == 'Idle · paper origin not set'
             assert (studio.pen_up.get(), studio.pen_down.get()) == ('M3 S180', 'M3 S70')

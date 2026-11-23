@@ -16,7 +16,7 @@ from .firmware import SERVO_PROFILE
 from .gcode import Machine
 from .units import factor, number
 from .paper_mount import validate_mount
-from .motion_profile import DRAW_FEED
+from .motion_profile import DRAW_FEED, JOG_FEED
 from .toolpath import QualityOptions
 
 BUILTIN = Path(__file__).with_name("presets") / "john-servo.json"
@@ -60,7 +60,13 @@ def validate(data: dict) -> dict:
         data = data | QUALITY_DEFAULTS | {'schema_version': 6}
     if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 6 and set(data) == V6_FIELDS:
         data = data | ROUTING_DEFAULTS | {'schema_version': 7}
-    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 7:
+    if isinstance(data, dict) and type(data.get('schema_version')) is int and data['schema_version'] == 7 and set(data) == FIELDS:
+        data = data | {'schema_version': 8}
+        if data['feed_mm_min'] == 8890:
+            data['feed_mm_min'] = DRAW_FEED
+        if data['jog_feed_mm_min'] == 150:
+            data['jog_feed_mm_min'] = JOG_FEED
+    if not isinstance(data, dict) or set(data) != FIELDS or type(data.get("schema_version")) is not int or data["schema_version"] != 8:
         raise ValueError("Unsupported or incomplete machine preset.")
     result = dict(data)
     if not isinstance(result["name"], str) or not result["name"].strip() or len(result["name"]) > 80:

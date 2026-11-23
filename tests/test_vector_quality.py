@@ -71,11 +71,11 @@ class VectorQualityTests(TestCase):
         previous = {k: v for k, v in presets.builtin().items() if k in presets.V3_FIELDS}
         previous.update(schema_version=3, feed_mm_min=3000)
         migrated = presets.validate(previous)
-        self.assertEqual(migrated['feed_mm_min'], 8890)
+        self.assertEqual(migrated['feed_mm_min'], 1500)
         self.assertEqual(migrated['seam_overlap_mm'], 0)
         self.assertEqual(presets.builtin()['seam_overlap_mm'], .5)
-        self.assertEqual((SMOOTH_SETTINGS[110], SMOOTH_SETTINGS[111]), (8890, 8890))
-        self.assertEqual((SMOOTH_SETTINGS[120], SMOOTH_SETTINGS[121], DRAW_FEED), (25, 25, 8890))
+        self.assertEqual((SMOOTH_SETTINGS[110], SMOOTH_SETTINGS[111]), (1500, 1500))
+        self.assertEqual((SMOOTH_SETTINGS[120], SMOOTH_SETTINGS[121], DRAW_FEED), (25, 25, 1500))
         self.assertNotIn(1, SMOOTH_SETTINGS)
 
     def test_all_export_formats_round_trip_fitted_geometry_and_closure(self):

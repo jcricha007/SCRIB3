@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 from .curves import segment_distance
-from .drawing import Drawing, path_lengths
+from .drawing import Drawing, MAX_STROKES, path_lengths
 from .routing import join_exact_strokes, optimize_route, stroke_key
 from .vector_io import checked_drawing
 
@@ -76,8 +76,8 @@ def simplify_stroke(stroke, tolerance):
     return tuple(result)
 
 
-def prepare_toolpath(drawing: Drawing, options=QualityOptions(), start=(0, 0)):
-    drawing = checked_drawing(drawing)
+def prepare_toolpath(drawing: Drawing, options=QualityOptions(), start=(0, 0), *, max_strokes=MAX_STROKES):
+    drawing = checked_drawing(drawing, max_strokes=max_strokes)
     before = PathMetrics.measure(drawing, start)
     tolerance = QUALITY_MODES[options.mode]
     seen = set()

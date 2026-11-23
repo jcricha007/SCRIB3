@@ -9,6 +9,16 @@ from test_controller import FakeSerial
 
 
 class DiscoveryTests(TestCase):
+    def test_control_lines_are_inactive_before_open(self):
+        from scrib3.grbl import open_port
+        with patch('scrib3.grbl.serial.Serial') as factory:
+            serial = factory.return_value
+            observed = []
+            serial.open.side_effect = lambda: observed.append((serial.port, serial.dtr, serial.rts))
+            self.assertIs(open_port('COM7', 115200, timeout=.05), serial)
+            factory.assert_called_once_with(port=None, baudrate=115200, timeout=.05)
+            self.assertEqual(observed, [('COM7', False, False)])
+
     def test_scans_bauds_and_requires_real_grbl_status(self):
         peers = []
         attempts = []

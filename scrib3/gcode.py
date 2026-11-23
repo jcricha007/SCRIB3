@@ -9,7 +9,7 @@ from .atomic_export import write_atomic_export
 from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
 from .units import factor
-from .gcode_preflight import ProgramPreflight, verify_program
+from .gcode_preflight import START_DWELL, ProgramPreflight, verify_program
 from .paper_mount import machine_point, required_travel, validate_mount
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
@@ -137,6 +137,7 @@ def review_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = 
             lines.append(f"G4 P{machine.settle:.3f}")
 
     actuate(machine.up)
+    first_travel = True
     omitted = duplicates = 0
     for stroke in drawing:
         # Only exact, explicitly closed source loops get overlap. Do not infer
@@ -159,6 +160,9 @@ def review_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = 
             continue
         x, y = points[0]
         lines.append(f"G0 X{coordinate(x)} Y{coordinate(y)}")
+        if first_travel:
+            lines.append(START_DWELL)
+            first_travel = False
         actuate(machine.up if dry_run else machine.down)
         for index, (x, y) in enumerate(points[1:]):
             feed = f" F{coordinate(machine.feed)}" if index == 0 else ""

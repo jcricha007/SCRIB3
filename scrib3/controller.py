@@ -13,7 +13,7 @@ import re
 from threading import Event, Lock, Thread
 from time import monotonic
 
-import serial
+from .grbl import open_port
 
 from .firmware import ServoSettings
 from .gcode import pen_command
@@ -135,7 +135,7 @@ class SessionFault(OSError):
 
 
 class Controller:
-    def __init__(self, port: str, baud: int = 115200, *, serial_factory=serial.Serial, apply_motion_defaults=False):
+    def __init__(self, port: str, baud: int = 115200, *, serial_factory=open_port, apply_motion_defaults=False):
         if not port or not 1200 <= baud <= 2000000:
             raise ValueError("Select a port and a baud rate between 1200 and 2000000.")
         self.port, self.baud = port, baud
@@ -167,6 +167,7 @@ class Controller:
         self.reference = 0
         self.job = dict(state='idle', accepted=0, completed=0, total=0, error='')
         self.job_paused = False
+        self.job_stop = Event()
         self.job_controls = Queue()
         self.aborted = False
         self.report = ""
@@ -221,6 +222,8 @@ class Controller:
                     and not (kind == 'home' and self.state == 'Alarm')):
                 raise ValueError('Wait for automatic motion setup to finish. Resolve Alarm first if needed.')
             self.busy = True
+            if kind == "run_job":
+                self.job_stop.clear()
             self.operation_kind = kind
             self.operation_id += 1
             self.operations.put_nowait((self.operation_id, kind, values))
@@ -244,6 +247,13 @@ class Controller:
     def resume_job(self):
         self.job_controls.put('resume')
 
+    def stop_job(self, operation):
+        with self.lock:
+            if self.busy and self.operation_kind == 'run_job' and self.operation_id == operation:
+                self.job_stop.set()
+                if self.job['state'] in {'running', 'paused'}:
+                    self.job['state'] = 'stopping'
+
     def close(self):
         self.stop.set()
 
@@ -259,7 +269,7 @@ class Controller:
         if self.stop.is_set() or self.reset_requested.is_set():
             # Disconnect during motion/unknown execution aborts before closing.
             if (self.reset_requested.is_set() or self.reset_required or self.pending
-                    or self.job['state'] in {'running', 'paused'} or self.state not in {"Idle", "Alarm"}):
+                    or self.job['state'] in {'running', 'paused', 'stopping'} or self.state not in {"Idle", "Alarm"}):
                 self._write(b"\x18")
                 self.aborted = True
                 self._note("Reset sent. Reconnect and re-establish position before moving.")
@@ -270,11 +280,16 @@ class Controller:
                 control = self.job_controls.get_nowait()
             except Empty:
                 break
-            if self.job['state'] in {'running', 'paused'}:
-                self._write(b'!' if control == 'pause' else b'~')
-                self.job_paused = control == 'pause'
-                with self.lock:
+            with self.lock:
+                if self.job['state'] in {'running', 'paused'} and not self.job_stop.is_set():
+                    self._write(b'!' if control == 'pause' else b'~')
+                    self.job_paused = control == 'pause'
                     self.job['state'] = 'paused' if self.job_paused else 'running'
+        # GRBL cannot discard its planner without resetting the servo. For a
+        # controlled stop from Pause, release only our own fully settled hold.
+        if self.job_stop.is_set() and self.job_paused and self.state == 'Hold:0':
+            self._write(b'~')
+            self.job_paused = False
         if self.cancel_requested.is_set():
             self._write(b"\x85")
             # Repeat until a jog's acknowledgement and subsequent Idle status:
@@ -316,7 +331,7 @@ class Controller:
                             base = self.report.split("\n<", 1)[0]
                             self.report = base + "\n" + line
                 self.poll_pending = False
-                if self.job['state'] in {'running', 'paused'} and status.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
+                if self.job['state'] in {'running', 'paused', 'stopping'} and status.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
                     raise SessionFault(f'Job stopped: controller reports {status.state}.')
                 continue
             self._note(line)
@@ -362,15 +377,18 @@ class Controller:
         self.poll_time = monotonic()
         self._wait(lambda: not self.poll_pending, 4)
 
-    def _command(self, command: str, timeout: float = 5, *, idle_timeout=None) -> list[str]:
+    def _command(self, command: str, timeout: float = 5, *, idle_timeout=None, job_line=False) -> list[str]:
         if self.stop.is_set() or self.reset_requested.is_set():
             self._pump()
         if self.cancel_requested.is_set() and command.startswith("$J="):
             self.cancel_requested.clear()
             raise ValueError("Jog cancelled before movement.")
-        self._note("> " + command)
-        self.pending, self.reply, self.lines = command, None, []
-        self._write(command.encode("ascii") + b"\n")
+        with self.lock:
+            if job_line and self.job_stop.is_set():
+                return []
+            self.log.append("> " + command)
+            self.pending, self.reply, self.lines = command, None, []
+            self._write(command.encode("ascii") + b"\n")
         idle_since = None
         def acknowledged():
             nonlocal idle_since
@@ -557,7 +575,8 @@ class Controller:
                 raise ValueError('Servo settings or override changed. Read GRBL and review again.')
         lines = job.commands()
         with self.lock:
-            self.job = dict(state='running', accepted=0, completed=0, total=len(lines), error='')
+            state = 'stopping' if self.job_stop.is_set() else 'running'
+            self.job = dict(state=state, accepted=0, completed=0, total=len(lines), error='')
         self.job_paused = False
         def wait_idle():
             self._fresh_status()
@@ -568,7 +587,9 @@ class Controller:
             self._wait(finished, 3600)
         try:
             for index, line in enumerate(lines):
-                self._wait(lambda: not self.job_paused, 3600)
+                self._wait(lambda: not self.job_paused or self.job_stop.is_set(), 3600)
+                if self.job_stop.is_set():
+                    break
                 xy_move = line.startswith(('G0 X', 'G1 X'))
                 if not xy_move:
                     # Drain motion before pen/modal/dwell commands, including Z lifts.
@@ -578,7 +599,8 @@ class Controller:
                 # One unacknowledged line fits GRBL's receive buffer. An ok lets
                 # the next XY segment enter the planner before prior motion ends.
                 # Full planners may delay ok until an earlier move finishes.
-                self._command(line, timeout=3600, idle_timeout=JOB_IDLE_ACK_TIMEOUT)
+                if not self._command(line, timeout=3600, idle_timeout=JOB_IDLE_ACK_TIMEOUT, job_line=True):
+                    break
                 with self.lock:
                     self.job['accepted'] = index + 1
                 if not xy_move:
@@ -586,6 +608,13 @@ class Controller:
                     with self.lock:
                         self.job['completed'] = index + 1
             wait_idle()
+            if self.job_stop.is_set():
+                self._actuate_pen(dict(command=job.machine.up, servo=job.machine.servo is not None,
+                                       settle=job.machine.settle))
+                wait_idle()
+                with self.lock:
+                    self.job.update(state='stopped', completed=self.job['accepted'])
+                return
             with self.lock:
                 self.job['completed'] = len(lines)
                 self.job['state'] = 'completed'
@@ -608,7 +637,7 @@ class Controller:
                 return
             self.busy = True
             self.motion_defaults_verifying = True
-        self._note('Checking automatic controller motion baseline: 350 in/min.')
+        self._note('Checking automatic controller motion baseline: 1,500 mm/min.')
         self.events.put(('motion_defaults', 'Applying motion baseline and verifying controller readback…'))
         try:
             self._operate('settings', {'values': SMOOTH_SETTINGS, 'automatic': True})
@@ -624,7 +653,7 @@ class Controller:
             with self.lock:
                 self.motion_defaults_verifying = False
         self._note('Automatic motion baseline verified.')
-        self.events.put(('motion_defaults', '350 in/min controller baseline verified. Ready to set home or jog.'))
+        self.events.put(('motion_defaults', '1,500 mm/min controller baseline verified. Ready to set home or jog.'))
 
     def _run(self):
         try:

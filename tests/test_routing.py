@@ -121,7 +121,7 @@ class RoutingTests(TestCase):
         old.update(schema_version=6, feed_mm_min=1234, seam_overlap_mm=.3,
                    quality_mode='Fine', remove_duplicates=True, x_steps_per_mm=17)
         new = presets.validate(old)
-        self.assertEqual(new['schema_version'], 7)
+        self.assertEqual(new['schema_version'], 8)
         for key, value in old.items():
             if key != 'schema_version':
                 self.assertEqual(new[key], value)

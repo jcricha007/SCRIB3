@@ -24,9 +24,9 @@ class JobWindow:
         self.pause.pack(side='left')
         self.resume = ttk.Button(buttons, text='Resume', command=session.resume_job, state='disabled')
         self.resume.pack(side='left', padx=8)
-        self.stop = ttk.Button(buttons, text='Stop / reset', command=session.reset)
+        self.stop = ttk.Button(buttons, text='Stop print', command=lambda: session.stop_job(operation))
         self.stop.pack(side='left')
-        ttk.Label(panel, text='Pause keeps the pen at its current height. Stop resets the Arduino and requires reconnecting; reset may lower the servo.',
+        ttk.Label(panel, text='Stop print finishes moves already sent to GRBL, then lifts the pen. From Pause, those moves resume to finish. For an immediate abort, use Control → Reset / abort.',
                   style='Muted.TLabel', wraplength=460).pack(anchor='w', pady=8)
         self.after_id = self.window.after(80, self.poll)
 
@@ -40,6 +40,8 @@ class JobWindow:
             self.status.set(result[2])
         elif state == 'completed':
             self.status.set('Sketch complete. GRBL reports Idle; pen-up command completed.')
+        elif state == 'stopped' and snap['connected']:
+            self.status.set('Print stopped. Pen raised. Connection and paper zero retained.')
         elif state in {'failed', 'stopped'}:
             self.status.set(f"Job {state}: {job['error']} Reconnect and re-establish paper zero before retrying.")
         elif not snap['connected']:
@@ -50,7 +52,7 @@ class JobWindow:
         self.progress.configure(maximum=max(1, job['total']), value=job['accepted'])
         self.pause.state(['!disabled'] if self.active and state == 'running' else ['disabled'])
         self.resume.state(['!disabled'] if self.active and state == 'paused' else ['disabled'])
-        self.stop.state(['!disabled'] if self.active else ['disabled'])
+        self.stop.state(['!disabled'] if self.active and state != 'stopping' else ['disabled'])
         self.after_id = None if finished else self.window.after(80, self.poll)
 
     def close(self):

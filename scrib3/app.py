@@ -7,6 +7,8 @@ from tkinter import filedialog, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
 from . import design, presets
+from .board import MAX_PATHS
+from .board_ui import BoardEditor
 from .assistant_ui import AssistantWindow
 from .jobs import PlotJob
 from .job_ui import JobWindow
@@ -89,8 +91,9 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.build_layout()
-        root.bind('<Control-o>', lambda _event: self.import_drawing())
-        root.bind('<Control-r>', lambda _event: self.review())
+        root.bind('<Control-o>', lambda _event: self.board.guard(self.board.open) if self.on_board() else self.import_drawing())
+        root.bind('<Control-s>', lambda _event: self.board.guard(self.board.save) if self.on_board() else None)
+        root.bind('<Control-r>', lambda _event: self.review(board_editor=self.board if self.on_board() else None))
         self.paper_mount.trace_add('write', self.mount_changed)
         root.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.refresh()
@@ -100,17 +103,29 @@ class Studio:
     def configure_theme(self) -> None:
         self.ui_font = theme.configure(self.root)
 
+    def on_board(self):
+        return bool(self.board.winfo_manager())
+
+    def show_board(self):
+        self.plotter_page.pack_forget()
+        self.board.pack(fill='both', expand=True)
+        self.board.canvas.focus_set()
+
+    def show_workbench(self):
+        self.board.stop()
+        self.board.pack_forget()
+        self.plotter_page.pack(fill='both', expand=True)
+
     def build_layout(self) -> None:
-        frame = ttk.Frame(self.root, padding=(16, 10, 16, 8))
+        self.board = BoardEditor(self.root, self)
+        frame = self.plotter_page = ttk.Frame(self.root, padding=(12, 4, 12, 4))
         frame.pack(fill="both", expand=True)
         header = ttk.Frame(frame)
-        header.pack(fill="x", pady=(0, 10))
+        header.pack(fill="x", pady=(0, 3))
         ttk.Label(header, text="SCRIB3", style="Brand.TLabel").pack(side="left")
-        ttk.Label(header, text="DRAW / REFINE / PLOT", style="Muted.TLabel").pack(
-            side="left", padx=(12, 0), pady=(4, 0)
-        )
+        ttk.Button(header, text="Board editor", command=self.show_board).pack(side="left", padx=12)
         ttk.Button(header, text="Review G-code", style="Primary.TButton", command=self.review).pack(
-            side="right", pady=5
+            side="right", pady=1
         )
 
         unit_bar = ttk.Frame(header)
@@ -127,7 +142,7 @@ class Studio:
                                     wraplength=730, height=2, justify='left', anchor='w')
         self.status_label.pack(side='left', fill='x', expand=True)
         status_bar.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(200, event.width-140)))
-        ttk.Separator(frame).pack(side="bottom", fill="x", pady=(8, 4))
+        ttk.Separator(frame).pack(side="bottom", fill="x", pady=(3, 2))
         body = ttk.Frame(frame)
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
@@ -302,7 +317,7 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
-            values.update(schema_version=7, name=self.preset_name.get(), units=self.unit,
+            values.update(schema_version=8, name=self.preset_name.get(), units=self.unit,
                           quality_mode=self.quality_mode.get(), remove_duplicates=self.remove_duplicates.get(),
                           join_strokes=self.join_strokes.get(), reloop=self.reloop.get(),
                           auto_motion_defaults=self.auto_motion_defaults.get(),
@@ -455,6 +470,9 @@ class Studio:
             self.assistant.window.lift()
 
     def shutdown(self):
+        if not self.board.discard():
+            return
+        self.board.stop()
         for window in self.import_windows:
             window.close()
         if self.assistant is not None:
@@ -537,13 +555,21 @@ class Studio:
     def inspect(self) -> None:
         self.controls.read_report()
 
-    def review(self) -> None:
+    def review(self, board_editor=None) -> None:
         try:
             if self.controls.session and self.controls.session.snapshot()["reset_required"]:
                 raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
             if self.controls.session and self.controls.session.snapshot().get('motion_defaults_pending'):
                 raise ValueError('Wait for automatic motion setup to finish before reviewing a job.')
-            self.refresh()
+            if board_editor is None:
+                self.refresh()
+                drawing, sheet = self.drawing, self.sheet
+            else:
+                drawing, sheet = board_editor.board.plot_layer(board_editor.pen.get())
+                start = (0, sheet.height) if self.paper_mount.get() == 'top_left_y' else (0, 0)
+                options = QualityOptions(self.quality_mode.get(), self.remove_duplicates.get(), self.optimize.get(),
+                                         self.join_strokes.get(), self.reloop.get())
+                drawing, _ = prepare_toolpath(drawing, options, start, max_strokes=MAX_PATHS)
             servo = None
             if self.firmware.get() == SERVO_PROFILE:
                 if self.controller_report is None or self.controller_report[:2] != (self.port.get(), int(self.baud.get())):
@@ -557,7 +583,7 @@ class Studio:
             machine = replace(machine, settle=max(.5, machine.settle))
             session = self.controls.session
             snap = session.snapshot() if session else {}
-            job = PlotJob(self.drawing, self.sheet, machine, self.unit, True,
+            job = PlotJob(drawing, sheet, machine, self.unit, True,
                           tuple(sorted(snap.get('settings', {}).items())), snap.get('reference', -1))
             review = job.review()
             program = review.program
@@ -587,13 +613,14 @@ class Studio:
                         command=update_preview).pack(anchor='w')
         corner = origin_corner(machine.paper_mount)
         direction = '+Y right, -X down' if machine.paper_mount == 'top_left_y' else '+X right, +Y up'
-        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. Minimum pen settle: 0.5 seconds. '
+        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. Pen up for 5 seconds at the first point. Minimum pen settle: 0.5 seconds. '
                   f'Closed-loop overlap: {display(machine.seam_overlap, self.unit)} {self.unit}.',
                   wraplength=630, style='Muted.TLabel').pack(anchor='w', pady=4)
         actions = ttk.Frame(controls)
         actions.pack(fill='x')
         def signature():
-            return (self.revision, self.unit, self.firmware.get(), self.pen_up.get(), self.pen_down.get(),
+            return ((board_editor.revision, board_editor.pen.get()) if board_editor else None,
+                    self.revision, self.unit, self.firmware.get(), self.pen_up.get(), self.pen_down.get(),
                     self.quality_mode.get(), self.remove_duplicates.get(),
                     self.join_strokes.get(), self.reloop.get(),
                     self.settle.get(), self.paper_mount.get(), self.optimize.get(), *(v.get() for v in self.dimension_fields().values()))
@@ -656,7 +683,9 @@ class Studio:
 def main(connect: str | None = None, baud: int | None = None) -> None:
     root = tk.Tk()
     studio = Studio(root)
+    studio.show_board()
     if connect is not None:
+        studio.show_workbench()
         studio.tabs.select(studio.controls)
         if connect == "auto" or baud is None:
             root.after(100, lambda: studio.controls.auto_detect(

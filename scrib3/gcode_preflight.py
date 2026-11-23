@@ -11,6 +11,9 @@ PWM = re.compile(rf"M3 S({NUMBER})\Z")
 DWELL = re.compile(rf"G4 P({NUMBER})\Z")
 
 
+START_DWELL = "G4 P5.000"
+
+
 @dataclass(frozen=True)
 class ProgramPreflight:
     command_count: int
@@ -58,6 +61,12 @@ def verify_program(program, *, units, machine, expected_strokes, dry_run=False):
         def refuse(reason):
             raise ValueError(f"G-code preflight line {index}: {reason}.")
 
+        if state == "first_point":
+            if line != START_DWELL:
+                refuse("missing five-second pen-up hold at the first point")
+            state = "travelled"
+            continue
+
         if dwell_pending:
             delay = DWELL.fullmatch(line)
             if not delay or not 0 <= float(delay[1]) <= 10 or abs(float(delay[1]) - machine.settle) > .0005 + 1e-10:
@@ -89,7 +98,7 @@ def verify_program(program, *, units, machine, expected_strokes, dry_run=False):
         if state == "lifted":
             if kind != "G0" or raw_feed is not None:
                 refuse("expected pen-up travel with no cutting feed")
-            state = "travelled"
+            state = "first_point" if travels == 0 else "travelled"
             travels += 1
         else:
             if kind != "G1" or (x, y) == position:

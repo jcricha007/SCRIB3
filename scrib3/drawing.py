@@ -84,6 +84,11 @@ def order_strokes(drawing: Drawing, start: Point = (0, 0)) -> Drawing:
 
 
 def read_svg(path: Path) -> Drawing:
+    return _svg_paths(path)[0]
+
+
+def _svg_paths(path, *, max_strokes=MAX_STROKES):
+    """Flatten once and retain the resolved pen color for each output subpath."""
     with path.open("rb") as stream:
         raw = stream.read(MAX_SVG_BYTES + 1)
     if len(raw) > MAX_SVG_BYTES:
@@ -112,10 +117,12 @@ def read_svg(path: Path) -> Drawing:
         if isinstance(element, Shape):
             path = SvgPath(element)
             dashes = dash_pattern(element.values)
-            shapes.append((path if dashes else path.reify(), dashes))
-            if len(shapes) > MAX_STROKES:
-                raise ValueError("Simplify the SVG to 2,000 shapes or fewer.")
-    bounds = [bound for shape, _ in shapes if (bound := shape.bbox()) is not None]
+            paint = element.stroke if getattr(element.stroke, "value", None) is not None else element.fill
+            color = "#202020" if getattr(paint, "value", None) is None else paint.hex[:7].lower()
+            shapes.append((path if dashes else path.reify(), dashes, color))
+            if len(shapes) > max_strokes:
+                raise ValueError(f"Simplify the SVG to {max_strokes:,} shapes or fewer.")
+    bounds = [bound for shape, _, _ in shapes if (bound := shape.bbox()) is not None]
     if not bounds:
         raise ValueError("This SVG contains no supported vector paths.")
     width = max(box[2] for box in bounds) - min(box[0] for box in bounds)
@@ -127,7 +134,9 @@ def read_svg(path: Path) -> Drawing:
     tolerance = max(width, height) * 1e-5
     drawing: list[Stroke] = []
     count = 0
-    for shape, dashes in shapes:
+    colors = []
+    for shape, dashes, color in shapes:
+        before = len(drawing)
         # Frobenius norm is a conservative bound on transform magnification.
         matrix = shape.transform
         magnification = hypot(matrix.a, matrix.b, matrix.c, matrix.d) if dashes else 1
@@ -139,8 +148,8 @@ def read_svg(path: Path) -> Drawing:
                 if len(points) > 1:
                     subpaths.append(tuple(points))
                 points = []
-                if len(drawing) + len(subpaths) >= MAX_STROKES:
-                    raise ValueError("Simplify the SVG to 2,000 strokes or fewer.")
+                if len(drawing) + len(subpaths) >= max_strokes:
+                    raise ValueError(f"Simplify the SVG to {max_strokes:,} strokes or fewer.")
                 continue
             if segment.start is None or segment.end is None:
                 continue
@@ -160,7 +169,7 @@ def read_svg(path: Path) -> Drawing:
             subpaths.append(tuple(points))
         for stroke in subpaths:
             if dashes:
-                expanded = split_dashes(stroke, *dashes, max_strokes=MAX_STROKES-len(drawing),
+                expanded = split_dashes(stroke, *dashes, max_strokes=max_strokes-len(drawing),
                                         max_points=MAX_POINTS-sum(map(len, drawing)))
                 for part in expanded:
                     drawing.append(tuple((matrix.a*x+matrix.c*y+matrix.e,
@@ -169,11 +178,12 @@ def read_svg(path: Path) -> Drawing:
                 drawing.append(stroke)
             if sum(map(len, drawing)) > MAX_POINTS:
                 raise ValueError('Simplify the SVG to reduce the number of plotting points.')
-        if len(drawing) > MAX_STROKES:
-            raise ValueError("Simplify the SVG to 2,000 strokes or fewer.")
+        colors.extend([color] * (len(drawing) - before))
+        if len(drawing) > max_strokes:
+            raise ValueError(f"Simplify the SVG to {max_strokes:,} strokes or fewer.")
     if not drawing:
         raise ValueError("The SVG contains no drawable strokes.")
-    return tuple(drawing)
+    return tuple(drawing), tuple(colors), (float(svg.width), float(svg.height)), (root.get("width"), root.get("height"))
 
 
 def path_lengths(drawing: Drawing, start: Point = (0, 0)) -> tuple[float, float]:

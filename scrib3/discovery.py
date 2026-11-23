@@ -6,6 +6,7 @@ from threading import Event
 from time import monotonic
 
 import serial
+from .grbl import open_port
 from serial.tools.list_ports import comports
 
 from .controller import parse_status
@@ -21,7 +22,7 @@ class Device:
 
 
 def detect(*, port: str | None = None, baud: int | None = None, cancel: Event | None = None,
-           progress=lambda text: None, serial_factory=serial.Serial, port_provider=comports,
+           progress=lambda text: None, serial_factory=open_port, port_provider=comports,
            probe_seconds: float = 2.5) -> Device:
     """Return the first GRBL responder. Never unlock, home, or write settings."""
     if baud is not None and not 1200 <= baud <= 2000000:

@@ -33,7 +33,7 @@ class FirmwareTests(TestCase):
                           ServoSettings.from_report(REPORT))
         lines = generate_gcode((((5, 5), (15, 5)),), Sheet(20, 20, 0), machine).splitlines()
         self.assertEqual(lines[2:], [
-            "M5", "G4 P0.200", "G0 X5.000 Y5.000",
+            "M5", "G4 P0.200", "G0 X5.000 Y5.000", "G4 P5.000",
             "M3 S100.000", "G4 P0.200", "G1 X15.000 Y5.000 F300.000",
             "M5", "G4 P0.200",
         ])

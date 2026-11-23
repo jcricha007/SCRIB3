@@ -11,6 +11,41 @@ See [artwork import and converter setup](docs/artwork-import.md) for supported
 variants, tracing controls, and Mac/Windows setup. Exports remain SVG, DXF,
 drawing JSON and G-code.
 
+## Board editor
+
+SCRIB3 opens to an editable board with a drawing toolbar, millimetre rulers,
+paper guide and pen-layer inspector. Choose **Import** to add artwork. SVG
+imports retain their physical size, relative placement and pen colors, including
+inherited group colors. Clear **True-size SVG import** to fit a new drawing to
+the paper. Multiple imports can share one board.
+
+- Choose **Paper** for A4, Letter, other standard sizes, orientation or custom dimensions.
+  **Bed** provides centered layout guides for Bambu A1 mini, A1, P1, P2S,
+  X1C, X2D, A2L and H2S bed sizes, or accepts custom dimensions.
+- Click a path, Shift-click to toggle it, drag a selection box, or press **Ctrl+A**
+  on the canvas. Drag selected artwork to move it. Drag its square handle to scale
+  or its round handle to rotate. Numeric scale and rotation, alignment, centering
+  and fit are available in the inspector.
+- Draw freehand, construct a four-point Bézier curve, add stroke lettering or draw
+  shapes. Select closed contours to hatch them. Holes are preserved by the
+  even–odd fill rule within each pen color.
+- **Board → Add workbench drawing** brings a design from the workbench, including
+  locally generated artwork, onto the board at its current physical size.
+- Use **Layer actions** to pick a pen, select its paths, recolor a selection, or
+  hide or lock a layer. **View** includes zoom and animated path-order preview.
+- **Board → Save** stores editable geometry, paper, bed guide and layer flags in a
+  local `.scrib3` file. **Board → Export visible SVG** preserves the paper and pen
+  groups. **Export active pen SVG** keeps the same page origin for registration.
+- To draw on a GRBL machine, configure it in **Board → Plotter workbench**, then
+  use **Review GRBL pen pass** for each color. Each review uses the same board
+  origin and opens in pen-up test mode. Mount the next pen and keep the paper
+  registered between passes. The reported drawing time covers pen-down distance
+  at the configured feed and excludes travel, lifts and acceleration.
+- For a Bambu H2S, export the SVG and use your existing printer-specific workflow.
+  The H2S guide supplies bed dimensions only. Native Bambu 3MF output, wireless
+  sending, hosted board sync, a public gallery and separate creator tools are
+  outside the capabilities of this release.
+
 ## Run on Windows
 
 With Python 3.12 installed, open PowerShell in the cloned repository and run the following commands.
@@ -53,13 +88,13 @@ If you have several Python installations, set **SCRIB3_PYTHON** to the executabl
 
 Choose **Inches** (imperial) or **Millimeters** (metric) with the **Units** selector in the header. It converts paper dimensions, travel, feeds, jog steps, live positions, and setup fields while preserving their physical values. Export uses **G20** for inches and **G21** for millimeters. Servo S values stay unchanged.
 
-The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Drawing feed starts at 8,890 mm/min (350 in/min); usable travel remains unset until measured/configured.
+The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Drawing feed starts at 1,500 mm/min (59.06 in/min); usable travel remains unset until measured/configured.
 
-On **Machine**, choose **Save preset** to remember current values and units. **Restore John's** reloads the bundled preset. On this upgrade, older saved presets adopt a 350 in/min drawing feed and automatic motion setup while retaining pen commands, dimensions, calibration, and units. Later saved feed adjustments are preserved. Loading a preset alone does not connect to the Arduino. In **Control → Setup → Motion**, **Use preset X/Y calibration** fills the setup fields; **Apply changed settings** writes them. A steps/mm change requires reset and reconnect before motion is enabled again.
+On **Machine**, choose **Save preset** to remember current values and units. **Restore John's** reloads the bundled preset. When upgrading, saved drawing and jog feeds that match the previous defaults (8,890 and 150 mm/min respectively) adopt 1,500 mm/min. Custom values in current presets are preserved. Later saved feed adjustments are preserved. Loading a preset alone does not connect to the Arduino. In **Control → Setup → Motion**, **Use preset X/Y calibration** fills the setup fields; **Apply changed settings** writes them. A steps/mm change requires reset and reconnect before motion is enabled again.
 
 For guided setup, use **Control → Setup → Motion → Guided calibration…**. The guide reads the current settings, applies the saved starting calibration on request, raises the pen for a small test move, and calculates an axis correction from your ruler/caliper measurement. It waits for Idle, accounts for step rounding, checks readback, and saves successful corrections. [Calibration instructions](docs/calibration.md)
 
-**Drawing and rapid travel default to 350 in/min (8,890 mm/min).** On connection, SCRIB3 automatically waits for Idle, applies changed X/Y maximum rates (8,890 mm/min), acceleration (25 mm/s²), and junction deviation (0.020 mm), then verifies readback before enabling normal motion. Manual jog remains 150 mm/min. No Smooth motion / Apply step is required. **Machine → Smooth motion** remains available for restoring the baseline or disabling automatic setup when retaining custom controller tuning across connections. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
+**Drawing and rapid travel default to 59.06 in/min (1,500 mm/min).** On connection, SCRIB3 automatically waits for Idle, applies changed X/Y maximum rates (1,500 mm/min), acceleration (25 mm/s²), and junction deviation (0.020 mm), then verifies readback before enabling normal motion. Manual jog defaults to 1,500 mm/min. No Smooth motion / Apply step is required. **Machine → Smooth motion** remains available for restoring the baseline or disabling automatic setup when retaining custom controller tuning across connections. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
 
 John's installed **DRV8825** drivers have a provisional **0.60 A** current-limit target. On a module with confirmed **R100** sense resistors, that corresponds to **0.300 V Vref**, set and measured physically on each driver. SCRIB3 cannot apply this current setting. Follow the [hardware baseline and acceptance test](docs/hardware-baseline.md) for the current adjustment, pen-up test, seam comparison, and temperature checks.
 
@@ -102,19 +137,22 @@ Jog to the desired starting location and click **Control → Set home**. It mark
 | --- | --- |
 | Drawing workbench | SVG/DXF/drawing JSON import/export, seam overlap, pattern creation, rotate/mirror/undo, local Ollama chat, and reviewed drawing generation/revision before G-code export. |
 | Plotter bring-up | Port/baud discovery, persistent connection, setup, guided measured calibration, manual/switch home, live positions, XY jog, work origin, and saved presets. Corrected travel and the first full plot still need physical verification. |
-| In-app plotting | Reviewed workspace sketches, pen-up tests, continuous XY planner feeding, pen-transition/final Idle checks, accepted-versus-completed progress, pause/resume, and stop/reset. Physical motion quality still needs verification. |
+| In-app plotting | Reviewed workspace sketches, pen-up tests, continuous XY planner feeding, pen-transition/final Idle checks, accepted-versus-completed progress, pause/resume, controlled Stop print, and emergency reset. Physical motion quality still needs verification. |
 | Next design tools | Raster tracing, point/stroke editing, and multiple machine-profile management. |
 
 ## Developer checks
 
 ~~~powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+$env:SCRIB3_DESKTOP_TESTS = "1"
+.\.venv\Scripts\python.exe -m pytest tests -v -ra
 ~~~
 
 On macOS, run the checks with the environment created by the launcher.
 
 ~~~bash
-.venv-macos/bin/python -m unittest discover -s tests -v
+.venv-macos/bin/python -m pip install -r requirements-dev.txt
+SCRIB3_DESKTOP_TESTS=1 .venv-macos/bin/python -m pytest tests -v -ra
 ~~~
 
 - [GRBL serial interface](https://github.com/gnea/grbl/blob/master/doc/markdown/interface.md)
@@ -133,3 +171,5 @@ options default off; small gaps remain open. Preferences are saved with your pre
 See [output quality](docs/output-quality.md) for the research, tolerances and
 the [curve comparison](examples/quality-check.svg) and
 [routing comparison](examples/routing-check.svg) drawings.
+
+See [Windows validation and remaining integration](docs/windows-validation.md) for the scope of this branch.

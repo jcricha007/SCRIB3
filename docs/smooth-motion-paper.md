@@ -2,26 +2,26 @@
 
 The original Run sketch sender waited for Idle after every XY segment. GRBL therefore decelerated to a stop at every vertex, even on a smooth curve. The updated sender waits for each line's acknowledgement, then supplies the next XY segment while previous motion remains in GRBL's planner. Only one serial line is unacknowledged at a time. Pen changes, dwells, and other commands wait for queued XY motion to finish. The final pen-up/dwell and Idle check still determine job completion.
 
-Progress distinguishes **accepted** lines (which may still be queued) from motion confirmed at a synchronization boundary. Pause/feed hold and resume remain available during planner backpressure; stop, disconnect, controller errors, and lost status abort without replaying a command. A full planner can delay acknowledgement while moving; an Idle controller with a missing acknowledgement times out after 15 seconds. An individual wait is limited to one hour of unpaused time.
+Progress distinguishes **accepted** lines (which may still be queued) from motion confirmed at a synchronization boundary. Pause/feed hold and resume remain available during planner backpressure; Stop print finishes already-submitted motion and lifts the pen. Disconnect, controller errors and lost status abort the session. A full planner can delay acknowledgement while moving; an Idle controller with a missing acknowledgement times out after 15 seconds. An individual wait is limited to one hour of unpaused time.
 
 ## Default motion profile
 
-Drawing and rapid travel default to **350 in/min (8,890 mm/min)**. Connecting
+Drawing and rapid travel default to **59.06 in/min (1,500 mm/min)**. Connecting
 SCRIB3 automatically checks the controller profile below while Idle. It writes
 only values that differ, then verifies controller readback before enabling
 normal motion. No Smooth motion / Apply step is needed.
 
 | Setting | Default value |
 | --- | --- |
-| Drawing feed | 8,890 mm/min = 350 in/min |
-| Manual jog feed | 150 mm/min = 5.906 in/min |
-| X/Y maximum rate, `$110` / `$111` | 8,890 mm/min = 350 in/min |
+| Drawing feed | 1,500 mm/min = 59.06 in/min |
+| Manual jog feed | 1,500 mm/min = 59.06 in/min |
+| X/Y maximum rate, `$110` / `$111` | 1,500 mm/min = 59.06 in/min |
 | X/Y acceleration, `$120` / `$121` | 25 mm/s² = 0.9843 in/s² |
 | Junction deviation, `$11` | 0.020 mm = 0.0007874 in |
 
 G0 pen-up travel uses the controller axis-rate limits; G1 drawing uses Machine →
 Draw feed. Acceleration, curves, and GRBL overrides can reduce actual speed.
-At this upgrade, older presets adopt the new drawing feed and automatic setup.
+Saved presets using the previous 8,890 mm/min drawing or 150 mm/min jog default adopt the new value for that field.
 Subsequent **Save preset** actions retain your chosen drawing feed across launches.
 Steps/mm, direction, travel limits, homing, pen positions, and idle delay are
 not part of automatic setup. Fresh/restored presets use a 0.5-second pen settle.

@@ -140,6 +140,32 @@ def _two_opt_pass(drawing, start, window=32):
     return tuple(stroke[::-1] if reverse else stroke for stroke, reverse in route)
 
 
+def _large_greedy_route(drawing, start):
+    """Delete visited endpoint pairs from a periodically rebuilt spatial index."""
+    from scipy.spatial import cKDTree
+    pending = set(range(len(drawing)))
+    route = []
+    position = start
+    while pending:
+        ends = [(i, side) for i in sorted(pending) for side in (0, -1)]
+        tree = cKDTree([drawing[i][side] for i, side in ends])
+        rebuild_at = len(pending) // 2
+        while len(pending) > rebuild_at:
+            k = min(8, len(ends))
+            while True:
+                _, nearest = tree.query(position, k=k)
+                hit = next((ends[j] for j in nearest if ends[j][0] in pending), None)
+                if hit is not None:
+                    break
+                k = min(k*2, len(ends))
+            i, side = hit
+            stroke = drawing[i] if side == 0 else drawing[i][::-1]
+            route.append(stroke)
+            position = stroke[-1]
+            pending.remove(i)
+    return tuple(route)
+
+
 def optimize_route(drawing, start=(0, 0), reloop=True):
     """Greedy route plus three local passes, retaining the shortest route found.
 
@@ -151,7 +177,8 @@ def optimize_route(drawing, start=(0, 0), reloop=True):
         return path_lengths(route, start)[1]
 
     seed = tuple(_rotate_loop(s, start) for s in drawing) if reloop else drawing
-    result = min((drawing, order_strokes(seed, start)), key=travel)
+    greedy = _large_greedy_route if len(seed) > 2000 else order_strokes
+    result = min((drawing, greedy(seed, start)), key=travel)
     for _ in range(3):
         candidate = _relocate_seams(result, start) if reloop else result
         candidate = _two_opt_pass(candidate, start)
