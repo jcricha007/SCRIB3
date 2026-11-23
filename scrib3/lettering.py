@@ -9,7 +9,7 @@ from svgelements import Line, Move, Path as SvgPath
 from .drawing import MAX_POINTS, MAX_STROKES
 from .vector_io import checked_drawing
 
-FONTS = {'Technical sans': 'futural', 'Script': 'scripts'}
+FONTS = {'Technical sans': 'futural', 'Script': 'scripts', 'Sans medium': 'futuram', 'Cursive': 'cursive', 'Gothic English': 'gothiceng', 'Gothic German': 'gothicger', 'Gothic Italian': 'gothicita', 'Script complex': 'scriptc', 'Serif': 'timesr', 'Serif italic': 'timesi', 'Serif bold italic': 'timesib', 'Serif bold': 'timesrb'}
 ALIGNMENTS = ('Left', 'Center', 'Right')
 
 

@@ -9,14 +9,13 @@ import tkinter as tk
 from scrib3.board import (
     Board,
     Mark,
-    bezier,
     export_svg,
-    hatch,
-    import_svg,
     load_board,
     save_board,
-    shape,
 )
+
+from scrib3.geometry import shape, hatch, bezier
+from scrib3.svg_artwork import import_svg
 
 RED = "#f56600"
 BLUE = "#522d80"
@@ -35,7 +34,7 @@ class BoardTests(TestCase):
                 ),
             )
             export_svg(p, board)
-            marks = import_svg(p, (297, 210))
+            marks = import_svg(p)
             self.assertEqual([m.color for m in marks], [RED, BLUE])
             for got, want in zip(marks, board.marks):
                 for pt, ref in zip(got.points, want.points):
@@ -84,10 +83,10 @@ class BoardDesktopTests(TestCase):
                 studio = Studio(root, Path(tmp) / "preset.json")
                 studio.show_board()
                 root.update()
-                editor = studio.board
+                editor = studio.board_editor
                 self.assertTrue(editor.canvas.winfo_viewable())
                 cv = editor.canvas
-                editor.tool.set("Rectangle")
+                editor.mode.set("Rectangle")
                 cv.event_generate("<Button-1>", x=120, y=120)
                 cv.event_generate("<B1-Motion>", x=260, y=250)
                 cv.event_generate("<ButtonRelease-1>", x=260, y=250)

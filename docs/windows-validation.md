@@ -1,40 +1,48 @@
-# Windows validation and remaining integration
+# Windows integration validation - 23 November 2026
 
-This branch publishes the Windows board editor and GRBL run-control work built
-on main `7a60edab778ae73ef9328ac1d76df7855ac18e27`.
+The cloud upgrade at `f70a40402865472133b7e07c485e0a6559f0813b` has been
+reconciled with the Windows work through `73f22dc`. The supplied ZIP matched
+SHA-256 `ec2dfe61774b9d13635c9076a758d9671af56d573c2270dea860aa9c59cfd796`.
+The original Windows worktree and unfinished draft were preserved separately.
 
-## Included
+## Included and retained
 
-- Paper-space board editor: path selection, move/rotate/scale handles, numeric
-  transforms, paper fit and alignment, shapes, lettering, Bezier drawing,
-  hatching, colored layers, lock/hide, undo/redo, editable board save/load and SVG export.
-- Registered GRBL pen passes and importing the workbench drawing onto the board.
-- Controlled Stop print drains queued motion, raises the pen and keeps the serial
-  session and existing reference. Emergency reset remains a separate action.
-- A five-second pen-up hold at the first drawing point and 1,500 mm/min defaults.
-- Inactive DTR/RTS requested before serial open to reduce Arduino reset pulses.
-- Compact workbench controls and larger board job limits.
-- CI uses pytest to collect both unittest classes and pytest function tests.
+- Expanded canvas: selection, transformations, colored layers and order, save/load,
+  undo/redo, fill/offset/arrays, physical SVG import with clipping and occlusion.
+- Photo art, mesh edge projection, local GeoJSON, QR codes, patterns and twelve
+  stroke fonts. Existing version-1 boards, custom bed guides and Tabloid paper work.
+- GRBL current-pen and sequential color review. The Windows synchronized Stop
+  logic, inactive DTR/RTS request, first-point hold, preset migration and compact
+  workbench remain. Each pass uses the same origin and quality-processing options.
+- Calibrated P1S/H2S G-code and experimental sliced-plate export, with explicit
+  shrink-to-reach, per-model metadata, checksum, preview and pen-up default.
+- Both CI workflows install pytest and collect function tests as well as classes.
 
-## Validation
+## Checks
 
-On 2026-11-23, Python 3.12.10 / pytest 9.1.1 on Windows ran the entire test suite
-with `SCRIB3_DESKTOP_TESTS=1`. Native Tk checks ran alongside simulated GRBL
-controller tests. Results for the final published tree are recorded in the PR.
-No physical controller was connected and no drawing job was sent to hardware.
-Inactive modem lines cannot guarantee that an Arduino driver never pulses reset.
+A new Windows Python 3.12.10 environment was created with the shipped launcher.
+`Run-SCRIB3.ps1 -Check` completed successfully and `pip check` found no broken
+requirements. The full native Tk regression result is recorded in PR #25.
 
-## Still pending
+The focused editor/import/printer run passed 23 tests and 8 subtests. It checks
+legacy-board reopening, bed guides, actual canvas events, color sequencing,
+100,001-point review, holder bounds, SVG geometry, fonts and export structure.
+A separate 3,000-path native editor smoke selected, rotated and fitted a drawing,
+then generated pen-up GRBL, P1S and H2S output.
 
-The earlier cloud upgrade package is not present in this Windows checkout.
-Its additional creator tools, richer SVG processing, font collection, and Bambu
-printer export workflow have not been integrated into this branch. The draft PR
-must not be described as full 3dplotter parity or qualified P1S/H2S support.
+The included demo exported for P1S at 82.828% and H2S at 100% using synthetic
+software-test calibration. All three pens use shared page registration. Both
+archives passed ZIP and MD5 checks and contained no contact-height moves in
+pen-up mode. These fixtures are not measured hardware calibration.
 
-Bed outlines are layout guides, not printer-output profiles. The uncommitted
-printer-output draft is preserved separately from this published source until
-its missing packaging and UI integration can be reconciled with the cloud work.
-Physical GRBL acceptance and calibrated pen-holder checks on P1S/H2S remain open.
+## Remaining acceptance
 
-The missing package is `SCRIB3-studio-upgrade.zip`, expected SHA-256
-`ec2dfe61774b9d13635c9076a758d9671af56d573c2270dea860aa9c59cfd796`.
+Bambu Studio could not be opened because desktop-access approval timed out.
+Desktop import/preview and printer pause/resume behavior are unverified. No
+hardware motion was sent. Calibrate the actual holder and perform small pen-up
+checks on the GRBL plotter, P1S and H2S before an ink run. Inactive modem lines
+reduce reset pulses but do not guarantee driver/firmware startup behavior.
+
+Full 3dplotter parity is not claimed: individual node editing, the complete tool
+catalog, online maps, integrated cloud image generation and direct network
+printer transmission remain future work. See [the studio guide](drawing-studio.md).

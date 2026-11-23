@@ -8,55 +8,45 @@ is traced with a source/path comparison before applying.
 PDF/AI can preserve vector paths or trace a selected rendered page. PDF/AI require
 Inkscape; DWG requires LibreDWG; legacy PostScript AI also needs Ghostscript.
 See [artwork import and converter setup](docs/artwork-import.md) for supported
-variants, tracing controls, and Mac/Windows setup. Exports remain SVG, DXF,
-drawing JSON and G-code.
+variants, tracing controls, and Mac/Windows setup. Exports include SVG, DXF, drawing JSON, G-code and experimental Bambu sliced plates.
 
-## Board editor
+## Drawing studio
 
-SCRIB3 opens to an editable board with a drawing toolbar, millimetre rulers,
-paper guide and pen-layer inspector. Choose **Import** to add artwork. SVG
-imports retain their physical size, relative placement and pen colors, including
-inherited group colors. Clear **True-size SVG import** to fit a new drawing to
-the paper. Multiple imports can share one board.
+SCRIB3 opens to a paper-space board with selection, move/scale/rotate handles,
+A4 and Letter layouts, custom paper and bed guides, colored pen layers,
+undo/redo and editable `.scrib3` files. Existing Windows boards remain compatible.
+**Board > Machine workbench** opens GRBL setup and the local Ollama assistant;
+**Board > Add workbench artwork** brings its drawing onto the board.
 
-- Choose **Paper** for A4, Letter, other standard sizes, orientation or custom dimensions.
-  **Bed** provides centered layout guides for Bambu A1 mini, A1, P1, P2S,
-  X1C, X2D, A2L and H2S bed sizes, or accepts custom dimensions.
-- Click a path, Shift-click to toggle it, drag a selection box, or press **Ctrl+A**
-  on the canvas. Drag selected artwork to move it. Drag its square handle to scale
-  or its round handle to rotate. Numeric scale and rotation, alignment, centering
-  and fit are available in the inspector.
-- Draw freehand, construct a four-point Bézier curve, add stroke lettering or draw
-  shapes. Select closed contours to hatch them. Holes are preserved by the
-  even–odd fill rule within each pen color.
-- **Board → Add workbench drawing** brings a design from the workbench, including
-  locally generated artwork, onto the board at its current physical size.
-- Use **Layer actions** to pick a pen, select its paths, recolor a selection, or
-  hide or lock a layer. **View** includes zoom and animated path-order preview.
-- **Board → Save** stores editable geometry, paper, bed guide and layer flags in a
-  local `.scrib3` file. **Board → Export visible SVG** preserves the paper and pen
-  groups. **Export active pen SVG** keeps the same page origin for registration.
-- To draw on a GRBL machine, configure it in **Board → Plotter workbench**, then
-  use **Review GRBL pen pass** for each color. Each review uses the same board
-  origin and opens in pen-up test mode. Mount the next pen and keep the paper
-  registered between passes. The reported drawing time covers pen-down distance
-  at the configured feed and excludes travel, lifts and acceleration.
-- For a Bambu H2S, export the SVG and use your existing printer-specific workflow.
-  The H2S guide supplies bed dimensions only. Native Bambu 3MF output, wireless
-  sending, hosted board sync, a public gallery and separate creator tools are
-  outside the capabilities of this release.
+**Import** supports SVG outlines/fills/clips, photo engraving/squiggles/stippling,
+3D mesh projections and local GeoJSON maps. **Create** includes twelve Hershey
+stroke fonts, procedural patterns, QR codes, offsets and repeated arrays.
+Select all paths with Ctrl+A, then use Rotate 90 degrees and Fit to paper to
+prepare a portrait blueprint for landscape paper.
+
+**Output** reviews a single color or registered color sequence for the current
+GRBL plotter. It also exports calibrated Bambu P1S/H2S G-code and experimental
+sliced `.gcode.3mf` files. Enter measured holder offsets and heights first.
+Pen-up mode is the default. Direct Bambu network printing and physical printer
+qualification are still pending.
+
+See the [drawing studio guide](docs/drawing-studio.md) for the tools, output
+workflow and remaining differences from 3dplotter.
 
 ## Run on Windows
 
-With Python 3.12 installed, open PowerShell in the cloned repository and run the following commands.
+Install Python 3.12 or newer with Tk, then double-click **Run-SCRIB3.cmd**.
+The launcher creates a local environment and installs the pinned dependencies.
+From PowerShell in the source folder:
 
-~~~powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m scrib3
-~~~
+```powershell
+.\Run-SCRIB3.ps1          # Open the application
+.\Run-SCRIB3.ps1 -Check   # Verify dependencies without opening a window
+.\Run-SCRIB3.ps1 -Tests   # Install test dependencies and run native Windows checks
+```
 
-To reopen SCRIB3, run the last command from the repository folder.
+Saved machine presets and holder calibration remain in the SCRIB3 user settings
+folder; upgrading this source does not replace them.
 
 ## Run on Mac
 
@@ -109,7 +99,7 @@ Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a
 
 **Plot quality** offers a short closed-loop overlap to help cover pen-contact gaps at circle seams. Choose **Use 0.5 mm → Apply and save**, then review again. Open paths retain their endpoints. See [vector formats, seam checks, and motor heat](docs/vector-formats.md) for supported DXF entities, examples, and the JSON format.
 
-SVG import plots outlines. Convert live text to paths, trace raster images to vectors, and flatten clipping and masks to paths before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
+Workbench SVG import plots outlines; board SVG import additionally handles fills and clips. Convert live text to paths and flatten masks/filters before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
 
 ## Check the Arduino connection
 
@@ -138,14 +128,14 @@ Jog to the desired starting location and click **Control → Set home**. It mark
 | Drawing workbench | SVG/DXF/drawing JSON import/export, seam overlap, pattern creation, rotate/mirror/undo, local Ollama chat, and reviewed drawing generation/revision before G-code export. |
 | Plotter bring-up | Port/baud discovery, persistent connection, setup, guided measured calibration, manual/switch home, live positions, XY jog, work origin, and saved presets. Corrected travel and the first full plot still need physical verification. |
 | In-app plotting | Reviewed workspace sketches, pen-up tests, continuous XY planner feeding, pen-transition/final Idle checks, accepted-versus-completed progress, pause/resume, controlled Stop print, and emergency reset. Physical motion quality still needs verification. |
-| Next design tools | Raster tracing, point/stroke editing, and multiple machine-profile management. |
+| Next design tools | Individual node editing, the remaining reference tool catalog, and direct Bambu network output. |
 
 ## Developer checks
 
 ~~~powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv-windows\Scripts\python.exe -m pip install -r requirements-dev.txt
 $env:SCRIB3_DESKTOP_TESTS = "1"
-.\.venv\Scripts\python.exe -m pytest tests -v -ra
+.\.venv-windows\Scripts\python.exe -m pytest tests -v -ra
 ~~~
 
 On macOS, run the checks with the environment created by the launcher.
@@ -172,4 +162,4 @@ See [output quality](docs/output-quality.md) for the research, tolerances and
 the [curve comparison](examples/quality-check.svg) and
 [routing comparison](examples/routing-check.svg) drawings.
 
-See [Windows validation and remaining integration](docs/windows-validation.md) for the scope of this branch.
+See [Windows validation and remaining checks](docs/windows-validation.md) for the scope of this branch.

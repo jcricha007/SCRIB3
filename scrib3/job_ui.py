@@ -4,7 +4,8 @@ from tkinter import ttk
 
 
 class JobWindow:
-    def __init__(self, root, session, operation):
+    def __init__(self, root, session, operation, on_complete=None):
+        self.on_complete = on_complete
         self.session, self.operation = session, operation
         self.window = tk.Toplevel(root)
         self.window.title('SCRIB3 | Running sketch')
@@ -26,7 +27,7 @@ class JobWindow:
         self.resume.pack(side='left', padx=8)
         self.stop = ttk.Button(buttons, text='Stop print', command=lambda: session.stop_job(operation))
         self.stop.pack(side='left')
-        ttk.Label(panel, text='Stop print finishes moves already sent to GRBL, then lifts the pen. From Pause, those moves resume to finish. For an immediate abort, use Control → Reset / abort.',
+        ttk.Label(panel, text='Stop finishes buffered moves and raises the pen. From Pause, buffered moves resume to finish. Connection and home stay set. Use Control reset for an immediate abort.',
                   style='Muted.TLabel', wraplength=460).pack(anchor='w', pady=8)
         self.after_id = self.window.after(80, self.poll)
 
@@ -41,7 +42,7 @@ class JobWindow:
         elif state == 'completed':
             self.status.set('Sketch complete. GRBL reports Idle; pen-up command completed.')
         elif state == 'stopped' and snap['connected']:
-            self.status.set('Print stopped. Pen raised. Connection and paper zero retained.')
+            self.status.set('Print stopped with pen raised. Connection and paper zero retained.')
         elif state in {'failed', 'stopped'}:
             self.status.set(f"Job {state}: {job['error']} Reconnect and re-establish paper zero before retrying.")
         elif not snap['connected']:
@@ -54,6 +55,9 @@ class JobWindow:
         self.resume.state(['!disabled'] if self.active and state == 'paused' else ['disabled'])
         self.stop.state(['!disabled'] if self.active and state != 'stopping' else ['disabled'])
         self.after_id = None if finished else self.window.after(80, self.poll)
+        if finished and snap['connected'] and state == 'completed' and result and result[0] == self.operation and not result[2] and self.on_complete:
+            callback, self.on_complete = self.on_complete, None
+            self.window.after_idle(callback)
 
     def close(self):
         if self.active:
