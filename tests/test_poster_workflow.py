@@ -2,6 +2,7 @@ from dataclasses import replace
 import hashlib
 from pathlib import Path
 from unittest.mock import Mock, patch
+from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
 import pytest
@@ -155,6 +156,10 @@ def test_p1s_reviewed_plates_preserve_pauses_registration_and_height(tmp_path, t
     path = tmp_path / "P1S.gcode.3mf"
     plan.export(path)
     with ZipFile(path) as z:
+        model = ET.fromstring(z.read("3D/3dmodel.model"))
+        metadata = {tag.attrib["name"]: tag.text for tag in model.findall("{*}metadata")}
+        assert metadata["Application"].startswith("BambuStudio-")
+        assert metadata["Designer"] == "SCRIB3"
         data = z.read("Metadata/plate_1.gcode")
         assert data == plan.gcode().encode("ascii")
         assert (

@@ -43,7 +43,7 @@ For GRBL, use **Output → Current pen to GRBL** or **All pens to GRBL**. Config
 
 1. In **Machine & calibration**, choose **P1S setup → Guided holder setup**. At one carriage position, measure nozzle and tip XY relative to the same reference, or enter the tip-minus-nozzle offsets directly. Enter the Z heights for light contact and for lifted travel with your paper and holder. Review the clip clearances, then **Apply measurements**. **Save holder** keeps the P1S settings for later sessions.
 2. Preview **A4 pen-up footprint**. This job stays at lift Z. Its rectangle and center cross use the common page placement. Select **Shrink paper to reach** to fit the planned A4 layout within the calibrated travel. Use the physical width, height and front-left coordinates shown in the review to position the stock. **Show pen-up travel** overlays moves between strokes.
-3. Choose **Open in Bambu Studio** and save the reviewed `.gcode.3mf`. SCRIB3 passes that exact file to the local Studio installation. Open it as a sliced plate. The job homes with the pen and any obstructing attachment removed, then pauses for installation. Inspect the footprint before an ink run.
+3. Check the pen lines and travel in SCRIB3. Choose **Open in Bambu Studio** and save the reviewed `.gcode.3mf`. SCRIB3 passes that exact file to the local Studio installation. In the default Studio preview, these extrusion-free jobs can show a bare bed. The job homes with the pen and any obstructing attachment removed, then pauses for installation. Inspect the physical footprint before an ink run.
 4. Choose **Two-pen registration** and preview the 50 × 50 mm sheet. Start with **Pen-up test**. For the ink check, clear that box after confirming the holder and paper position. Change pens at the programmed pause, keeping the paper and holder reference fixed. The second pen's five diamonds should center on the first pen's crosses. The same transform places both passes.
 5. Choose **Current drawing board** to review the visible pen layers using the same measured setup. Export G-code or a sliced plate. In the machine window, **GRBL controls** returns to the Arduino session.
 
@@ -61,4 +61,4 @@ Possible future additions include more stroke fonts, live map sources and direct
 
 ## Format reference
 
-The sliced-plate metadata and paths were cross-checked against the [Bambu Studio archive reader and writer](https://github.com/bambulab/BambuStudio/blob/355d71eee5a9ebc794693fe57e63674806019770/src/libslic3r/Format/bbs_3mf.cpp). This source review supplements the archive tests; it does not establish desktop or printer acceptance.
+Bambu Studio 2.9.2.62 on Linux opened both the P1S pen-up footprint and two-pen registration archives as sliced P1S plates. SCRIB3 tests check the G-code bytes and checksum, pen-change pauses, commanded heights and XY registration. [Bambu Studio archive reader and writer](https://github.com/bambulab/BambuStudio/blob/v02.09.02.62/src/libslic3r/Format/bbs_3mf.cpp)
