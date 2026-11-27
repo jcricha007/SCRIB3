@@ -8,20 +8,45 @@ is traced with a source/path comparison before applying.
 PDF/AI can preserve vector paths or trace a selected rendered page. PDF/AI require
 Inkscape; DWG requires LibreDWG; legacy PostScript AI also needs Ghostscript.
 See [artwork import and converter setup](docs/artwork-import.md) for supported
-variants, tracing controls, and Mac/Windows setup. Exports remain SVG, DXF,
-drawing JSON and G-code.
+variants, tracing controls, and Mac/Windows setup. Exports include SVG, DXF, drawing JSON, G-code and experimental Bambu sliced plates.
+
+## Drawing studio
+
+SCRIB3 opens to a paper-space board with selection, move/scale/rotate handles,
+A4 and Letter layouts, custom paper and bed guides, colored pen layers,
+undo/redo and editable `.scrib3` files. Existing Windows boards remain compatible.
+**Board > Machine workbench** opens GRBL setup and the local Ollama assistant;
+**Board > Add workbench artwork** brings its drawing onto the board.
+
+**Import** supports SVG outlines/fills/clips, photo engraving/squiggles/stippling,
+3D mesh projections and local GeoJSON maps. **Create** includes twelve Hershey
+stroke fonts, procedural patterns, QR codes, offsets and repeated arrays.
+Select all paths with Ctrl+A, then use Rotate 90 degrees and Fit to paper to
+prepare a portrait blueprint for landscape paper.
+
+**Output** reviews a single color or registered color sequence for the current
+GRBL plotter. It also exports calibrated Bambu P1S/H2S G-code and experimental
+sliced `.gcode.3mf` files. Enter measured holder offsets and heights first.
+Pen-up mode is the default. Direct Bambu network printing and physical printer
+qualification are still pending.
+
+See the [drawing studio guide](docs/drawing-studio.md) for the tools, output
+workflow and remaining differences from 3dplotter.
 
 ## Run on Windows
 
-With Python 3.12 installed, open PowerShell in the cloned repository and run the following commands.
+Install Python 3.12 or newer with Tk, then double-click **Run-SCRIB3.cmd**.
+The launcher creates a local environment and installs the pinned dependencies.
+From PowerShell in the source folder:
 
-~~~powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m scrib3
-~~~
+```powershell
+.\Run-SCRIB3.ps1          # Open the application
+.\Run-SCRIB3.ps1 -Check   # Verify dependencies without opening a window
+.\Run-SCRIB3.ps1 -Tests   # Install test dependencies and run native Windows checks
+```
 
-To reopen SCRIB3, run the last command from the repository folder.
+Saved machine presets and holder calibration remain in the SCRIB3 user settings
+folder; upgrading this source does not replace them.
 
 ## Run on Mac
 
@@ -53,13 +78,13 @@ If you have several Python installations, set **SCRIB3_PYTHON** to the executabl
 
 Choose **Inches** (imperial) or **Millimeters** (metric) with the **Units** selector in the header. It converts paper dimensions, travel, feeds, jog steps, live positions, and setup fields while preserving their physical values. Export uses **G20** for inches and **G21** for millimeters. Servo S values stay unchanged.
 
-The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Drawing feed starts at 8,890 mm/min (350 in/min); usable travel remains unset until measured/configured.
+The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Drawing feed starts at 1,500 mm/min (59.06 in/min); usable travel remains unset until measured/configured.
 
-On **Machine**, choose **Save preset** to remember current values and units. **Restore John's** reloads the bundled preset. On this upgrade, older saved presets adopt a 350 in/min drawing feed and automatic motion setup while retaining pen commands, dimensions, calibration, and units. Later saved feed adjustments are preserved. Loading a preset alone does not connect to the Arduino. In **Control → Setup → Motion**, **Use preset X/Y calibration** fills the setup fields; **Apply changed settings** writes them. A steps/mm change requires reset and reconnect before motion is enabled again.
+On **Machine**, choose **Save preset** to remember current values and units. **Restore John's** reloads the bundled preset. When upgrading, saved drawing and jog feeds that match the previous defaults (8,890 and 150 mm/min respectively) adopt 1,500 mm/min. Custom values in current presets are preserved. Later saved feed adjustments are preserved. Loading a preset alone does not connect to the Arduino. In **Control → Setup → Motion**, **Use preset X/Y calibration** fills the setup fields; **Apply changed settings** writes them. A steps/mm change requires reset and reconnect before motion is enabled again.
 
 For guided setup, use **Control → Setup → Motion → Guided calibration…**. The guide reads the current settings, applies the saved starting calibration on request, raises the pen for a small test move, and calculates an axis correction from your ruler/caliper measurement. It waits for Idle, accounts for step rounding, checks readback, and saves successful corrections. [Calibration instructions](docs/calibration.md)
 
-**Drawing and rapid travel default to 350 in/min (8,890 mm/min).** On connection, SCRIB3 automatically waits for Idle, applies changed X/Y maximum rates (8,890 mm/min), acceleration (25 mm/s²), and junction deviation (0.020 mm), then verifies readback before enabling normal motion. Manual jog remains 150 mm/min. No Smooth motion / Apply step is required. **Machine → Smooth motion** remains available for restoring the baseline or disabling automatic setup when retaining custom controller tuning across connections. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
+**Drawing and rapid travel default to 59.06 in/min (1,500 mm/min).** On connection, SCRIB3 automatically waits for Idle, applies changed X/Y maximum rates (1,500 mm/min), acceleration (25 mm/s²), and junction deviation (0.020 mm), then verifies readback before enabling normal motion. Manual jog defaults to 1,500 mm/min. No Smooth motion / Apply step is required. **Machine → Smooth motion** remains available for restoring the baseline or disabling automatic setup when retaining custom controller tuning across connections. The runner now feeds consecutive XY segments to GRBL's planner without stopping at each vertex. [Motion and paper setup](docs/smooth-motion-paper.md)
 
 John's installed **DRV8825** drivers have a provisional **0.60 A** current-limit target. On a module with confirmed **R100** sense resistors, that corresponds to **0.300 V Vref**, set and measured physically on each driver. SCRIB3 cannot apply this current setting. Follow the [hardware baseline and acceptance test](docs/hardware-baseline.md) for the current adjustment, pen-up test, seam comparison, and temperature checks.
 
@@ -74,7 +99,7 @@ Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a
 
 **Plot quality** offers a short closed-loop overlap to help cover pen-contact gaps at circle seams. Choose **Use 0.5 mm → Apply and save**, then review again. Open paths retain their endpoints. See [vector formats, seam checks, and motor heat](docs/vector-formats.md) for supported DXF entities, examples, and the JSON format.
 
-SVG import plots outlines. Convert live text to paths, trace raster images to vectors, and flatten clipping and masks to paths before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
+Workbench SVG import plots outlines; board SVG import additionally handles fills and clips. Convert live text to paths and flatten masks/filters before importing. Pen commands currently support Z-axis **G0 Z** or **G1 Z … F…**, and spindle-PWM **M3 S** or **M5** on firmware that maps those commands to the lift. The prototype requires those values from the actual plotter before it exports a job.
 
 ## Check the Arduino connection
 
@@ -102,19 +127,22 @@ Jog to the desired starting location and click **Control → Set home**. It mark
 | --- | --- |
 | Drawing workbench | SVG/DXF/drawing JSON import/export, seam overlap, pattern creation, rotate/mirror/undo, local Ollama chat, and reviewed drawing generation/revision before G-code export. |
 | Plotter bring-up | Port/baud discovery, persistent connection, setup, guided measured calibration, manual/switch home, live positions, XY jog, work origin, and saved presets. Corrected travel and the first full plot still need physical verification. |
-| In-app plotting | Reviewed workspace sketches, pen-up tests, continuous XY planner feeding, pen-transition/final Idle checks, accepted-versus-completed progress, pause/resume, and stop/reset. Physical motion quality still needs verification. |
-| Next design tools | Raster tracing, point/stroke editing, and multiple machine-profile management. |
+| In-app plotting | Reviewed workspace sketches, pen-up tests, continuous XY planner feeding, pen-transition/final Idle checks, accepted-versus-completed progress, pause/resume, controlled Stop print, and emergency reset. Physical motion quality still needs verification. |
+| Next design tools | Individual node editing, the remaining reference tool catalog, and direct Bambu network output. |
 
 ## Developer checks
 
 ~~~powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv-windows\Scripts\python.exe -m pip install -r requirements-dev.txt
+$env:SCRIB3_DESKTOP_TESTS = "1"
+.\.venv-windows\Scripts\python.exe -m pytest tests -v -ra
 ~~~
 
 On macOS, run the checks with the environment created by the launcher.
 
 ~~~bash
-.venv-macos/bin/python -m unittest discover -s tests -v
+.venv-macos/bin/python -m pip install -r requirements-dev.txt
+SCRIB3_DESKTOP_TESTS=1 .venv-macos/bin/python -m pytest tests -v -ra
 ~~~
 
 - [GRBL serial interface](https://github.com/gnea/grbl/blob/master/doc/markdown/interface.md)
@@ -133,3 +161,5 @@ options default off; small gaps remain open. Preferences are saved with your pre
 See [output quality](docs/output-quality.md) for the research, tolerances and
 the [curve comparison](examples/quality-check.svg) and
 [routing comparison](examples/routing-check.svg) drawings.
+
+See [Windows validation and remaining checks](docs/windows-validation.md) for the scope of this branch.

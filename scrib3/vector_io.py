@@ -17,14 +17,14 @@ FORMATS = [('Vector drawings', '*.svg *.dxf *.json'), ('SVG', '*.svg'),
            ('DXF', '*.dxf'), ('SCRIB3 drawing JSON', '*.json')]
 
 
-def checked_drawing(strokes) -> Drawing:
+def checked_drawing(strokes, *, max_strokes=MAX_STROKES, max_points=MAX_POINTS) -> Drawing:
     result, total = [], 0
     for stroke in strokes:
         points = []
         for point in stroke:
             total += 1
-            if total > MAX_POINTS:
-                raise ValueError('Simplify the drawing to 100,000 points or fewer.')
+            if total > max_points:
+                raise ValueError(f'Simplify the drawing to {max_points:,} points or fewer.')
             if (len(point) != 2 or any(type(v) not in (int, float) or
                     not isfinite(v) or abs(v) > 1e9 for v in point)):
                 raise ValueError('Drawing points must be finite XY numbers within ±1e9.')
@@ -34,8 +34,8 @@ def checked_drawing(strokes) -> Drawing:
         if len(points) < 2:
             raise ValueError('Each stroke must contain at least two distinct points.')
         result.append(tuple(points))
-        if len(result) > MAX_STROKES:
-            raise ValueError('Simplify the drawing to 2,000 strokes or fewer.')
+        if len(result) > max_strokes:
+            raise ValueError(f'Simplify the drawing to {max_strokes:,} strokes or fewer.')
     if not result:
         raise ValueError('This file contains no drawable strokes.')
     return tuple(result)

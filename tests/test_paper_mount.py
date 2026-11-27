@@ -47,7 +47,7 @@ class PaperMountTests(TestCase):
         self.assertEqual(migrated['paper_mount'], 'bottom_left_x')
         self.assertEqual(migrated['x_steps_per_mm'], 5.2)
         self.assertEqual(migrated['paper_width_mm'], 148)
-        self.assertEqual(migrated['feed_mm_min'], 8890)
+        self.assertEqual(migrated['feed_mm_min'], 1500)
         self.assertEqual(machine_point(3, 4, 105, migrated['paper_mount']), (3, 4))
         for invalid in ('unknown', [], None):
             with self.assertRaises(ValueError):

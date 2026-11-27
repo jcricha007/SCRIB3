@@ -18,7 +18,7 @@ from .machine_readiness import machine_readiness
 
 class ControlPanel(ttk.Frame):
     def __init__(self, parent, studio):
-        super().__init__(parent, padding=8)
+        super().__init__(parent, padding=(8, 2))
         self.studio = studio
         self.session = None
         self.scan_cancel = Event()
@@ -40,7 +40,7 @@ class ControlPanel(ttk.Frame):
         self.columnconfigure(1, weight=1)
         self.columnconfigure(2, weight=1)
 
-        connection = ttk.LabelFrame(self, text="Connection", padding=6)
+        connection = ttk.LabelFrame(self, text="Connection", padding=(6, 2))
         connection.grid(row=0, columnspan=3, sticky="ew")
         connection.columnconfigure(0, weight=1)
         self.port_picker = ttk.Combobox(connection, textvariable=studio.port, width=22)
@@ -94,8 +94,8 @@ class ControlPanel(ttk.Frame):
             for column, (name, command) in enumerate(entries):
                 label = {"Set manual home": "Set home", "Go to manual home": "Go home", "Home": "Switch home",
                          "Set paper XY zero": "Paper XY zero", "Connection log": "Log", "Setup…": "Setup..."}.get(name, name)
-                button = ttk.Button(self, text=label, command=command, padding=(5, 2))
-                button.grid(row=row, column=column, sticky="ew", padx=(0, 3), pady=1)
+                button = ttk.Button(self, text=label, command=command, padding=(5, 1))
+                button.grid(row=row, column=column, sticky="ew", padx=(0, 3))
                 self.buttons[name] = button
         self.update_units()
         self.update_axes()

@@ -68,7 +68,7 @@ class ToolpathTests(TestCase):
         legacy = {k: v for k, v in presets.builtin().items() if k in presets.V5_FIELDS}
         legacy.update(schema_version=5, feed_mm_min=1234)
         upgraded = presets.validate(legacy)
-        self.assertEqual(upgraded['schema_version'], 7)
+        self.assertEqual(upgraded['schema_version'], 8)
         self.assertEqual(upgraded['feed_mm_min'], 1234)
         self.assertEqual(upgraded['quality_mode'], 'Balanced')
         self.assertFalse(upgraded['remove_duplicates'])

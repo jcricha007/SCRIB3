@@ -219,9 +219,9 @@ class DesignDesktopTests(TestCase):
             self.assertEqual({n: v for n, v in peer.settings.items() if n not in SMOOTH_SETTINGS},
                              {n: v for n, v in before.items() if n not in SMOOTH_SETTINGS})
             # Allow inch-display rounding, well below exported feed precision.
-            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 8890, delta=1e-5)
-            self.assertAlmostEqual(to_mm(panel.rate.get(), app.unit), 150, places=6)
-            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 8890, delta=1e-5)
+            self.assertAlmostEqual(to_mm(app.feed.get(), app.unit), 1500, delta=1e-5)
+            self.assertAlmostEqual(to_mm(panel.rate.get(), app.unit), 1500, places=6)
+            self.assertAlmostEqual(presets.load(app.preset_file)['feed_mm_min'], 1500, delta=1e-5)
             self.assertFalse(panel.session.snapshot()['reset_required'])
             app.auto_motion_defaults.set(False)
             motion.save_automatic()

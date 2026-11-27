@@ -33,7 +33,7 @@ class AutomaticMotionTests(TestCase):
                          {n: v for n, v in before.items() if n not in SMOOTH_SETTINGS})
         self.assertEqual(len(self.writes(peer)), 5)
         self.assertTrue(all(w == b'?' or w.startswith(b'$') for w in peer.writes))
-        self.assertIn('$110=8890', snap['report'])
+        self.assertIn('$110=1500', snap['report'])
         self.assertIn('baseline verified', snap['log'])
 
     def test_matching_eeprom_is_not_rewritten_and_session_tuning_is_not_overridden(self):
@@ -84,15 +84,15 @@ class AutomaticMotionTests(TestCase):
                 session.request(kind, **values)
         session.request('unlock')
         eventually(lambda: not session.snapshot()['motion_defaults_pending'])
-        self.assertEqual(peer.settings[110], 8890)
+        self.assertEqual(peer.settings[110], 1500)
         session.request('zero')
         eventually(lambda: not session.snapshot()['busy'])
-        self.assertLess(peer.writes.index(b'$111=8890\n'), peer.writes.index(b'G10 L20 P1 X0 Y0\n'))
+        self.assertLess(peer.writes.index(b'$111=1500\n'), peer.writes.index(b'G10 L20 P1 X0 Y0\n'))
 
     def test_error_or_readback_mismatch_never_enables_motion_or_retries(self):
         for reply in ('error:3', 'ok'):
             with self.subTest(reply=reply):
-                peer = FakeSerial(); peer.errors['$110=8890'] = reply
+                peer = FakeSerial(); peer.errors['$110=1500'] = reply
                 session = self.start(peer)
                 eventually(lambda: not session.thread.is_alive())
                 snap = session.snapshot()
@@ -100,9 +100,9 @@ class AutomaticMotionTests(TestCase):
                 self.assertTrue(snap['motion_defaults_pending'])
                 self.assertFalse(snap['motion_defaults_verifying'])
                 self.assertIn('Automatic motion setup failed', snap['fault'])
-                self.assertEqual(peer.writes.count(b'$110=8890\n'), 1)
+                self.assertEqual(peer.writes.count(b'$110=1500\n'), 1)
                 if reply == 'error:3':
-                    self.assertNotIn(b'$111=8890\n', peer.writes)
+                    self.assertNotIn(b'$111=1500\n', peer.writes)
                 else:
                     self.assertIn('readback did not match', snap['fault'])
                 with self.assertRaises(ValueError):

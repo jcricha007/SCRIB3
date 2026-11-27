@@ -168,6 +168,52 @@ class JobProtocolTests(TestCase):
         self.assertFalse(self.controller.snapshot()['origin_set'])
         self.assertEqual(len(self.peer.normal_moves), before)
 
+    def test_stop_during_start_hold_keeps_pen_up_home_and_serial(self):
+        self.controller.request('set_home')
+        eventually(lambda: not self.controller.snapshot()['busy'])
+        before = self.controller.snapshot()
+        original = self.peer.write
+
+        def hold_start(data):
+            if data == b'G4 P5.000\n':
+                self.peer.writes.append(data)
+                return len(data)
+            return original(data)
+
+        self.peer.write = hold_start
+        operation = self.controller.request('run_job', job=self.job())
+        eventually(lambda: b'G4 P5.000\n' in self.peer.writes)
+        self.controller.stop_job(operation)
+        self.peer.emit('ok')
+        eventually(lambda: not self.controller.snapshot()['busy'])
+        after = self.controller.snapshot()
+        self.assertEqual(after['job']['state'], 'stopped')
+        for key in ('connected', 'origin_set', 'manual_home', 'settings', 'reference'):
+            self.assertEqual(after[key], before[key])
+        self.assertNotIn(b'M3 S70.000\n', self.peer.writes)
+        self.assertNotIn(b'\x18', self.peer.writes)
+        self.assertFalse(self.peer.closed)
+        self.peer.write = original
+        self.peer.block_moves = False
+        self.controller.request('run_job', job=self.job())
+        eventually(lambda: not self.controller.snapshot()['busy'])
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'completed')
+
+    def test_stop_while_paused_with_an_unacknowledged_move(self):
+        self.peer.block_ack_at = 2
+        operation = self.controller.request('run_job', job=self.job())
+        eventually(lambda: len(self.peer.normal_moves) == 2)
+        self.controller.pause_job()
+        eventually(lambda: self.peer.state == 'Hold:0')
+        self.controller.stop_job(operation)
+        eventually(lambda: b'~' in self.peer.writes)
+        self.peer.emit('ok')
+        self.finish_moves()
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'stopped')
+        self.assertEqual(len(self.peer.normal_moves), 2)
+        self.assertEqual(self.peer.writes.count(b'M3 S180.000\n'), 2)
+        self.assertNotIn(b'\x18', self.peer.writes)
+
     def test_error_stops_without_sending_following_lines_or_retrying(self):
         job = self.job()
         command = next(line for line in job.commands() if line.startswith('G1 X'))

@@ -35,7 +35,7 @@ class PlottingTests(TestCase):
         drawing = (((10, 5), (20, 15)), ((30, 20), (35, 25)))
         program = generate_gcode(drawing, sheet, machine).splitlines()
         self.assertEqual(program[2:], [
-            "G0 Z3.000", "G0 X10.000 Y5.000", "G1 Z0.000 F100.000",
+            "G0 Z3.000", "G0 X10.000 Y5.000", "G4 P5.000", "G1 Z0.000 F100.000",
             "G1 X20.000 Y15.000 F600.000", "G0 Z3.000",
             "G0 X30.000 Y20.000", "G1 Z0.000 F100.000",
             "G1 X35.000 Y25.000 F600.000", "G0 Z3.000",

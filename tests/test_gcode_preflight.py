@@ -18,6 +18,10 @@ PWM = Machine(10, 10, 60, "M3 S180", "M3 S70", settle=0.2)
 def test_generated_program_roundtrips_offline(units, dry_run, mount, actuator):
     machine = replace(PWM, paper_mount=mount, up=actuator[0], down=actuator[1])
     result = review_gcode(ART, SHEET, machine, units, dry_run=dry_run)
+    commands = result.program.splitlines()
+    travel = next(i for i, line in enumerate(commands) if line.startswith("G0 X"))
+    assert commands[travel + 1] == "G4 P5.000"
+    assert commands.count("G4 P5.000") == 1
     assert result.preflight.pen_up_travels == 2
     assert result.preflight.plotted_segments == 4
     assert result.preflight.command_count == len(result.program.splitlines()) - 1
@@ -25,6 +29,7 @@ def test_generated_program_roundtrips_offline(units, dry_run, mount, actuator):
 
 
 @pytest.mark.parametrize(("old", "new", "reason"), [
+    ("G4 P5.000", "G4 P0.000", "five-second"),
     ("G90", "G91", "explicit job modes"),
     ("G0 X1.000", "G0 X-1.000", "outside the configured"),
     ("G1 X3.000 Y4.000 F60.000", "G1 X3.000 Y4.000", "explicit feed"),

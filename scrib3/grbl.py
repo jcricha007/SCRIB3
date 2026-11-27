@@ -6,6 +6,16 @@ import serial
 from serial.tools import list_ports
 
 
+def open_port(port, baud, **options):
+    """Request inactive modem lines before opening an Arduino serial port."""
+    connection = serial.Serial(port=None, baudrate=baud, **options)
+    connection.dtr = False
+    connection.rts = False
+    connection.port = port
+    connection.open()
+    return connection
+
+
 def ports() -> list[str]:
     return sorted(port.device for port in list_ports.comports())
 
@@ -32,7 +42,7 @@ def inspect(port: str, baud: int = 115200) -> str:
     """Collect the startup banner, status, build information, and settings."""
     if not port or not 1 <= baud <= 2_000_000:
         raise ValueError("Select a serial port and enter a valid baud rate.")
-    with serial.Serial(port, baud, timeout=0.2, write_timeout=1) as connection:
+    with open_port(port, baud, timeout=0.2, write_timeout=1) as connection:
         startup = _receive(connection, 2.0, lambda line: line.startswith("Grbl "))
         connection.write(b"?")
         status = _receive(connection, 1.5, lambda line: line.startswith("<") and line.endswith(">"))

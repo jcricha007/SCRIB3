@@ -26,7 +26,7 @@ class MotionDefaultsWindow:
         panel = ttk.Frame(self.window, padding=16)
         panel.pack(fill='both', expand=True)
         ttk.Label(panel, text='Smooth motion starting values', style='Title.TLabel').pack(anchor='w')
-        ttk.Label(panel, text='Drawing and travel default to 350 in/min. The controller baseline is checked automatically on connection, before normal motion is enabled.',
+        ttk.Label(panel, text='Drawing, travel and jog default to 1,500 mm/min (59.06 in/min). The controller baseline is checked automatically on connection, before normal motion is enabled.',
                   wraplength=570).pack(anchor='w', pady=8)
         unit = self.unit = studio.unit
         ttk.Label(panel, text=f'Draw: {DRAW_FEED / (25.4 if unit == "in" else 1):.3f} {unit}/min   |   Jog: {JOG_FEED / (25.4 if unit == "in" else 1):.3f} {unit}/min',

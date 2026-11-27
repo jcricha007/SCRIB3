@@ -1,6 +1,6 @@
 # John's plotter baseline and acceptance test
 
-The software baseline is **350 in/min drawing and travel**. The provisional
+The software baseline is **59.06 in/min drawing and travel**. The provisional
 hardware current limit is **0.60 A on each X/Y driver**. SCRIB3 applies the
 motion profile automatically on connection; current must be set with each
 driver's potentiometer and checked with a meter. Neither a PR merge nor a
@@ -16,9 +16,9 @@ GRBL command changes or confirms the driver current.
 | Current-sense resistors | Upper module: R100 visible in the photos. Confirm both sense resistors on the lower module before using the same Vref target. |
 | Motors | McMaster-Carr 6627T66, bipolar NEMA 17, 1.8°, 0.7 A maximum per phase, 9.82 Ω per phase |
 | Trial current limit | 0.60 A per driver; not yet physically measured or validated |
-| Drawing feed / X/Y maximum rate | 350 in/min / 8,890 mm/min |
+| Drawing feed / X/Y maximum rate | 59.06 in/min / 1,500 mm/min |
 | X/Y acceleration / junction deviation | 25 mm/s² / 0.020 mm |
-| Manual jog feed | 150 mm/min, independent of drawing feed |
+| Manual jog feed | 1,500 mm/min, independent of drawing feed |
 | X/Y calibration | Reported 5.000 steps/mm (127 steps/in); verify against measured travel |
 | Pen | Up: `M3 S180`; down: `M3 S70`; settle: 0.5 s |
 | Paper | Letter landscape; 11-inch edge along Y; top-left home; +Y right, −X down |
@@ -70,8 +70,8 @@ Changing microstepping requires separate recalibration.
 ## Run the acceptance test
 
 1. **Confirm startup.** Update and launch after merging. Wait for Idle and
-   automatic setup to finish. Check drawing feed **350 in/min** and readback
-   `$110=$111=8890`, `$120=$121=25`, `$11=0.020`. There is no required
+   automatic setup to finish. Check drawing feed **59.06 in/min** and readback
+   `$110=$111=1500`, `$120=$121=25`, `$11=0.020`. There is no required
    **Apply app + controller** step. Check that motor power is actually on:
    USB communication and `ok` replies alone do not prove powered movement.
 2. **Check direction and return.** Raise the pen and mark its physical starting
@@ -101,7 +101,7 @@ Changing microstepping requires separate recalibration.
    same location before motion and at 5, 10, and 15 minutes, recording ambient
    temperature too. Check return position again after the run. Feed is a
    requested maximum: the retained acceleration and short curves can prevent
-   reaching 350 in/min. This test evaluates the chosen profile on these paths.
+   reaching 59.06 in/min. This test evaluates the chosen profile on these paths.
 
 Stop the test if motion stalls, binds, loses position, or the driver cuts out.
 Resolve the cause and re-establish home before continuing. Reset can lower

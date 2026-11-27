@@ -18,8 +18,8 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -r requirements.txt
-      - run: python -m unittest discover -s tests -v
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest tests -v -ra
   native-artwork-import:
     runs-on: ubuntu-latest
     env:
@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -r requirements.txt
+      - run: python -m pip install -r requirements-dev.txt
       - name: Install Inkscape, Ghostscript and LibreDWG 0.14
         run: |
           sudo add-apt-repository -y ppa:inkscape.dev/stable
@@ -45,4 +45,4 @@ jobs:
           make -j2 -C programs dwg2dxf dxf2dwg
           echo "$RUNNER_TEMP/libredwg-0.14/programs" >> "$GITHUB_PATH"
       - name: Exercise real PDF, AI, PNG, PSD and DWG files
-        run: python -m unittest discover -s tests -p test_artwork_import.py -v
+        run: python -m pytest tests/test_artwork_import.py -v -ra
