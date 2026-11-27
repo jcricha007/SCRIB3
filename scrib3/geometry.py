@@ -1,10 +1,8 @@
 """Clipping, fills and path modifiers backed by robust planar geometry."""
 
-from dataclasses import replace
 from math import ceil, cos, sin, tau
 from shapely import affinity
 from shapely.geometry import Polygon, LineString, GeometryCollection
-from shapely.ops import unary_union
 from .board import Mark, MAX_PATHS, MAX_POINTS
 
 
@@ -91,12 +89,13 @@ def array(marks, count, step_x=10, step_y=0, angle=0):
 
     if not 1 <= count <= 100:
         raise ValueError("Use 1 to 100 copies.")
+    from .poster_objects import independent_copy
+
     result = list(marks)
     b = Board(marks=tuple(marks))
     for i in range(1, count):
-        result.extend(
-            b.transform(range(len(marks)), angle=i * angle, dx=i * step_x, dy=i * step_y).marks
-        )
+        copy = b.transform(range(len(marks)), angle=i * angle, dx=i * step_x, dy=i * step_y)
+        result.extend(independent_copy(copy.marks, result))
     check_size(result)
     return tuple(result)
 

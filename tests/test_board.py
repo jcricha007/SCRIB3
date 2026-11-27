@@ -111,14 +111,13 @@ class BoardDesktopTests(TestCase):
                 studio.firmware.set("Manual commands")
                 studio.pen_up.set("M5")
                 studio.pen_down.set("M3 S200")
-                studio.machine_width.set("30")
-                studio.machine_height.set("30")
                 with patch("scrib3.app.PlotJob", side_effect=ValueError("captured")) as job, patch(
                     "tkinter.messagebox.showerror"
                 ):
                     studio.review(board_editor=editor)
                 self.assertEqual(job.call_args.args[1].width, 297)
                 self.assertEqual(job.call_args.args[1].height, 210)
+                self.assertEqual((job.call_args.args[2].width, job.call_args.args[2].height), (210, 297))
                 self.assertTrue(job.call_args.args[4])
                 studio.show_workbench()
                 self.assertFalse(studio.on_board())

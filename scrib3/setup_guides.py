@@ -2,8 +2,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from .units import display, setting_display, to_mm
-from .paper_mount import MOUNTS, origin_corner, required_travel
+from .units import display, setting_display
+from .paper_mount import MOUNTS, exceeds_travel, origin_corner, required_travel
 from .motion_profile import DRAW_FEED, TRAVEL_FEED, JOG_FEED, SMOOTH_SETTINGS
 
 PAPER_SIZES = {
@@ -150,6 +150,7 @@ class PaperGuideWindow:
         self.canvas = tk.Canvas(panel, background='#e7ecf3', highlightthickness=0, height=300)
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<Configure>', lambda _: self.paint())
+        self.window.bind('<FocusIn>', lambda _: self.update_travel_status())
 
     def mount_code(self):
         return next(code for code, label in MOUNTS.items() if label == self.mount.get())
@@ -182,15 +183,20 @@ class PaperGuideWindow:
         canvas.create_oval(left-5, origin_y-5, left+5, origin_y+5, fill='#2563eb', outline='')
         canvas.create_text(left, top-28, text=f'START: {origin_corner(mount)} corner (0, 0), pen up', anchor='w', fill='#172033')
         canvas.create_text((left+right)/2, (top+bottom)/2, text='Top view\n0.5-inch margin', fill='#617085')
-        try:
-            x_travel, y_travel = required_travel(width, height, mount)
-            fits = to_mm(self.studio.machine_width.get(), self.studio.unit) >= x_travel-.001 and to_mm(self.studio.machine_height.get(), self.studio.unit) >= y_travel-.001
-        except ValueError:
-            fits = False
-        self.status.set('Fits configured travel. Confirm clearance from the selected corner in the drawing directions.' if fits else
-                        'Full sheet exceeds or lacks configured travel. Measure usable travel first; paper size does not establish machine limits.')
+        self.update_travel_status()
         direction = '+Y moves right; -X moves down. Drawings extend into +Y and -X.' if john else '+X moves right; +Y moves up.'
         self.instructions.set(f'Tape the sheet flat. Raise the pen, jog to the {origin_corner(mount)} paper corner, then click Control > Set home (or Paper XY zero). {direction} Re-establish zero after applying this setup.')
+
+    def update_travel_status(self):
+        required = required_travel(*PAPER_SIZES[self.choice.get()], self.mount_code())
+        limits = self.studio.travel_limits()
+        if exceeds_travel(required, limits):
+            message = 'The full sheet exceeds the configured travel for this mounting.'
+        elif None in limits:
+            message = 'Connect and read GRBL to check whether the full sheet fits.'
+        else:
+            message = 'Fits configured travel. Confirm clearance from the selected corner in the drawing directions.'
+        self.status.set(message)
 
     def apply(self):
         session = self.studio.controls.session

@@ -12,26 +12,11 @@ variants, tracing controls, and Mac/Windows setup. Exports include SVG, DXF, dra
 
 ## Drawing studio
 
-SCRIB3 opens to a paper-space board with selection, move/scale/rotate handles,
-A4 and Letter layouts, custom paper and bed guides, colored pen layers,
-undo/redo and editable `.scrib3` files. Existing Windows boards remain compatible.
-**Board > Machine workbench** opens GRBL setup and the local Ollama assistant;
-**Board > Add workbench artwork** brings its drawing onto the board.
+SCRIB3 opens **Machine & calibration** on the **Control** tab. Choose the Arduino port and baud, then **Connect** to jog the DIY plotter, raise or lower the pen, set manual home or paper zero, and calibrate travel. **Open drawing board** opens a second window in the same app. You can keep both windows side by side. The machine window previews the board, and closing and reopening the board preserves the drawing and the controller session.
 
-**Import** supports SVG outlines/fills/clips, photo engraving/squiggles/stippling,
-3D mesh projections and local GeoJSON maps. **Create** includes twelve Hershey
-stroke fonts, procedural patterns, QR codes, offsets and repeated arrays.
-Select all paths with Ctrl+A, then use Rotate 90 degrees and Fit to paper to
-prepare a portrait blueprint for landscape paper.
+On the board, **Import → SVG / vector / image → Keep SVG page coordinates** places separately imported SVG layers at their original positions. Use **Edit nodes** for paths and cubic curves, **Edit lettering** for SCRIB3 text, and **Save selection as element** for reusable logos. **Preview line cleanup** overlays the result at the chosen pen width. **Import → Engineering drawing sheet** builds top, front, right and isometric views from a mesh at one scale. Board files, elements and sheet templates use the `.scrib3` format.
 
-**Output** reviews a single color or registered color sequence for the current
-GRBL plotter. It also exports calibrated Bambu P1S/H2S G-code and experimental
-sliced `.gcode.3mf` files. Enter measured holder offsets and heights first.
-Pen-up mode is the default. Direct Bambu network printing and physical printer
-qualification are still pending.
-
-See the [drawing studio guide](docs/drawing-studio.md) for the tools, output
-workflow and remaining differences from 3dplotter.
+**Output** reviews a single pen or a registered sequence for the DIY plotter. **P1S setup** in the machine window guides holder calibration, previews a pen-up footprint and two-pen registration, and opens an exported sliced plate in Bambu Studio. **Output → Bambu P1S** on the board opens that same setup. The H2S exporter is also available under **Output**. [Drawing studio and printer guide](docs/drawing-studio.md)
 
 ## Run on Windows
 
@@ -78,7 +63,7 @@ If you have several Python installations, set **SCRIB3_PYTHON** to the executabl
 
 Choose **Inches** (imperial) or **Millimeters** (metric) with the **Units** selector in the header. It converts paper dimensions, travel, feeds, jog steps, live positions, and setup fields while preserving their physical values. Export uses **G20** for inches and **G21** for millimeters. Servo S values stay unchanged.
 
-The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Drawing feed starts at 1,500 mm/min (59.06 in/min); usable travel remains unset until measured/configured.
+The bundled **John's servo plotter** preset opens in inches with **Pen up = M3 S180**, **Pen down = M3 S70**, and an X/Y starting calibration of **5.000 steps/mm** (**127 steps/in**). The travel correction comes from the reported 0.1-inch command producing 5 inches of movement with the original 250 steps/mm settings; verify it with the calibration guide before plotting. Drawing feed starts at 1,500 mm/min (59.06 in/min). SCRIB3 reads the X and Y travel limits from the connected Arduino.
 
 On **Machine**, choose **Save preset** to remember current values and units. **Restore John's** reloads the bundled preset. When upgrading, saved drawing and jog feeds that match the previous defaults (8,890 and 150 mm/min respectively) adopt 1,500 mm/min. Custom values in current presets are preserved. Later saved feed adjustments are preserved. Loading a preset alone does not connect to the Arduino. In **Control → Setup → Motion**, **Use preset X/Y calibration** fills the setup fields; **Apply changed settings** writes them. A steps/mm change requires reset and reconnect before motion is enabled again.
 
@@ -88,14 +73,14 @@ For guided setup, use **Control → Setup → Motion → Guided calibration…**
 
 John's installed **DRV8825** drivers have a provisional **0.60 A** current-limit target. On a module with confirmed **R100** sense resistors, that corresponds to **0.300 V Vref**, set and measured physically on each driver. SCRIB3 cannot apply this current setting. Follow the [hardware baseline and acceptance test](docs/hardware-baseline.md) for the current adjustment, pen-up test, seam comparison, and temperature checks.
 
-Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a 0.5-inch margin, and **top-left home with +Y right and −X down**. For an existing installation, choose **Design → Paper guide → Use John's Letter setup** to apply and save that mapping. The guide also offers Letter/A4 layouts and the original bottom-left mapping. Jog buttons follow the selected mounting. Changing the mounting invalidates paper zero and old reviews. Paper selection never changes machine travel: verify usable X travel down the page and Y travel across it.
+Fresh presets use **US Letter landscape (11 inches across, 8.5 inches down)**, a 0.5-inch margin, and **top-left home with +Y right and −X down**. For an existing installation, choose **Design → Paper guide → Use John's Letter setup** to apply and save that mapping. The guide also offers Letter/A4 layouts and the original bottom-left mapping. Jog buttons follow the selected mounting. Changing the mounting invalidates paper zero and old reviews. The guide checks the sheet against the controller’s travel limits. For John’s mounting, X runs down the page and Y runs across it.
 
 ## Make a drawing
 
 1. Load the sample, import artwork (see [supported formats](docs/artwork-import.md)), create a Grid/Spiral/Rosette on **Design**, or open the Ollama assistant. Review the conversion preview when importing a new artwork format. In **Create / revise**, request new line art or revise the workspace drawing; inspect the proposal and choose **Use drawing in workspace**. Chat can help develop the brief. AI responses cannot operate the controller.
 2. Set paper size and margin, then select **Fit to paper**. The drawing scales proportionally using its artwork bounds. Rotate or mirror it, use **Undo design** to restore the previous source, and **Export drawing** to save the fitted geometry. **Show pen-up travel** reveals moves between strokes.
-3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then connect on **Control** to capture its settings. See the [firmware setup notes](docs/firmware.md). On the **Machine** tab, enter the plotter's usable X/Y travel, drawing feed, and verified pen-up and pen-down commands. Enter a settle time if the actuator needs time before the next move.
-4. Use **Control → Set home** (or **Paper XY zero**) at the paper corner selected in Paper guide—top-left for John's setup, then select **Review G-code**. The review starts with **Pen-up test** selected; leave it selected for the first trial, or uncheck it to draw with ink. Choose **Run sketch** to execute in SCRIB3, or **Save .gcode** to export the reviewed mode. The job uses absolute coordinates in the selected units and G54, with the selected paper mapping. John's setup plots into **−X and +Y** from top-left home. [Running sketches](docs/running-sketches.md)
+3. For the supplied servo firmware, select **Machine → Firmware profile → Uploaded RC-servo**, then connect on **Control** to capture its settings. SCRIB3 reads the travel limits automatically from GRBL (`$130` and `$131`). On **Machine**, confirm the drawing feed and pen commands. **Pen settle** gives the pen time to finish lifting or lowering before XY movement resumes. The preset and the minimum for a sketch are both 0.5 seconds. [Firmware setup notes](docs/firmware.md)
+4. Use **Control → Set home** (or **Paper XY zero**) at the paper corner selected in Paper guide—top-left for John's setup, then select **Review G-code**. The review starts with **Pen-up test** selected; leave it selected for the first trial, or uncheck it to draw with ink. Choose **Run sketch** to execute in SCRIB3, or **Save .gcode** to export the reviewed mode. The job uses absolute coordinates in the selected units and G54, with the selected paper mapping. John's setup plots into **−X and +Y** from top-left home. A run raises the pen, travels to the first point and waits **10 seconds** before drawing. It finishes with the pen raised at the final point until your next command. [Running sketches](docs/running-sketches.md)
 
 **Plot quality** offers a short closed-loop overlap to help cover pen-contact gaps at circle seams. Choose **Use 0.5 mm → Apply and save**, then review again. Open paths retain their endpoints. See [vector formats, seam checks, and motor heat](docs/vector-formats.md) for supported DXF entities, examples, and the JSON format.
 
@@ -119,7 +104,7 @@ Opening a port can reset the Arduino and move the servo. Physical travel calibra
 
 Jog to the desired starting location and click **Control → Set home**. It marks that location for this connection and sets G54 XY zero without moving the axes. **Go home** lifts the pen with the configured command, waits at least half a second, and returns in a straight line at the jog feed. **Cancel jog** cancels the return. You can set a separate drawing origin with **Paper XY zero** afterward.
 
-**Switch home** is the separate GRBL homing cycle and requires configured switches and `$22=1`. A manual reference does not establish a switch-based machine reference or enable soft limits. Set manual home again after reconnecting, resetting, an alarm, switch homing, or changes to the axis calibration. Firmware startup/reset still moves the servo to its original **M5** position; saving a preset does not change the firmware.
+**Switch home** is the separate GRBL homing cycle and requires configured switches and `$22=1`. A manual reference does not establish a switch-based machine reference or enable soft limits. Set manual home again after reconnecting, resetting, an alarm, switch homing, or changes to the axis calibration. On the original Arduino firmware, startup and reset can lower the servo to its M5 position. An optional firmware patch sets that position to John’s calibrated lift. [Firmware details](docs/firmware.md#optional-pen-up-on-reset-for-johns-uno)
 
 ## Build sequence
 

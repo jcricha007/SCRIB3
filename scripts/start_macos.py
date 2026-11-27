@@ -23,8 +23,11 @@ from scrib3.grbl import ports
 
 root = tk.Tk()
 root.withdraw()
-Studio(root)
+studio = Studio(root)
+studio.show_board()
+studio.board_window.withdraw()
 root.update_idletasks()
+assert studio.board_editor.winfo_toplevel() != studio.controls.winfo_toplevel()
 print(f"Python {platform.python_version()} on {platform.system()} {platform.machine()}")
 print(f"Tk {root.tk.call('package', 'require', 'Tk')}")
 print(f"svgelements {version('svgelements')}, ezdxf {version('ezdxf')}, pySerial {version('pyserial')}")

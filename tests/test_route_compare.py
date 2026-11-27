@@ -65,6 +65,7 @@ class RouteDesktopTests(TestCase):
             errors = []
             root.report_callback_exception = lambda *args: errors.append(str(args))
             app = Studio(root, Path(folder)/'prefs.json')
+            app.tabs.select(app.design_tab)
             win = RouteWindow(app)
             def wait(predicate):
                 deadline = monotonic()+5

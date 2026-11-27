@@ -26,6 +26,7 @@ class DesignDesktopTests(TestCase):
         self.errors = []
         self.root.report_callback_exception = lambda *args: self.errors.append(str(args))
         self.app = Studio(self.root, preset_file=Path(self.folder.name) / 'prefs.json')
+        self.app.tabs.select(self.app.design_tab)
         self.windows = []
         self.root.update()
 
@@ -158,7 +159,7 @@ class DesignDesktopTests(TestCase):
             self.settle()
             app.unit_choice.set('Millimeters'); app.change_units()
             app.paper_width.set('10'); app.paper_height.set('10'); app.margin.set('1')
-            app.machine_width.set('10'); app.machine_height.set('10'); app.feed.set('60')
+            app.feed.set('60')
             app.set_drawing('Test line', (((0, 0), (1, 1)),))
             panel.perform('zero')
             self.wait(lambda: not panel.session.snapshot()['busy'])
@@ -204,6 +205,47 @@ class DesignDesktopTests(TestCase):
             self.assertNotIn(b'M3 S70.000\n', peer.writes)
             self.assertTrue(peer.normal_moves)
 
+    def test_review_uses_paper_offline_and_current_controller_limits_when_connected(self):
+        app, panel = self.app, self.app.controls
+        app.unit_choice.set('Millimeters')
+        app.change_units()
+        app.firmware.set('Manual commands')
+        app.paper_width.set('12')
+        app.paper_height.set('8')
+        app.margin.set('1')
+        app.set_drawing('Travel check', (((0, 0), (1, 1)),))
+        peer = FakeSerial()
+        with patch.object(controls, 'Controller', side_effect=lambda *a, **kw: Controller(
+                *a, **kw, serial_factory=lambda *a, **k: peer)), patch.object(
+                app, 'text_dialog', wraps=app.text_dialog) as dialogs, patch('scrib3.app.messagebox.showerror') as error:
+            app.review()
+            self.assertIn('Offline review uses paper bounds', dialogs.call_args.args[1])
+            self.assertTrue(app.save_preset())
+            saved = presets.load(app.preset_file)
+            self.assertEqual((saved['machine_width_mm'], saved['machine_height_mm']), (None, None))
+
+            app.port.set('COM7')
+            panel.connect()
+            self.wait(lambda: panel.session.snapshot()['connected'])
+            self.assertTrue(app.save_preset())
+            self.assertEqual(app.saved_travel, (200, 200))
+            app.review()
+            self.assertFalse(error.called, error.call_args)
+            self.assertNotIn('Offline review', dialogs.call_args.args[1])
+
+            peer.settings[131] = 11
+            panel.perform('refresh')
+            self.wait(lambda: not panel.session.snapshot()['busy'])
+            app.review()
+            self.assertIn('needs X 8 and Y 12 mm', error.call_args.args[1])
+            self.assertIn('X 200 and Y 11 mm', error.call_args.args[1])
+
+            del peer.settings[131]
+            panel.perform('refresh')
+            self.wait(lambda: not panel.session.snapshot()['busy'])
+            app.review()
+            self.assertIn('$130 and $131', error.call_args.args[1])
+
     def test_smooth_motion_apply_readback_preserves_calibration_and_paper_orientation(self):
         peer = FakeSerial()
         with patch.object(controls, 'Controller', side_effect=lambda *a, **kw: Controller(*a, **kw, serial_factory=lambda *a, **k: peer)):
@@ -232,14 +274,13 @@ class DesignDesktopTests(TestCase):
             self.assertTrue(button.winfo_viewable())
             self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
                                  app.tabs.winfo_rooty() + app.tabs.winfo_height())
-            app.machine_width.set('7'); app.machine_height.set('7')
             guide = PaperGuideWindow(app)
             for name, dims in [('US Letter landscape', (279.4, 215.9)), ('US Letter portrait', (215.9, 279.4))]:
                 guide.choice.set(name); guide.apply(); self.root.update()
                 self.assertAlmostEqual(app.sheet.width, dims[0])
                 self.assertAlmostEqual(app.sheet.height, dims[1])
                 self.assertIn('exceeds', guide.status.get())
-                self.assertEqual(app.machine_width.get(), '7')
+                self.assertEqual(app.travel_limits(), (200, 200))
             self.assertAlmostEqual(app.sheet.margin, 12.7)
             for geometry in ('660x740', '620x700'):
                 guide.window.geometry(geometry); self.root.update()
@@ -247,11 +288,16 @@ class DesignDesktopTests(TestCase):
             panel.perform('zero')
             self.wait(lambda: not panel.session.snapshot()['busy'])
             self.assertTrue(panel.session.snapshot()['origin_set'])
-            app.machine_width.set('8.5'); app.machine_height.set('11')
+            peer.settings.update({130: 215.9, 131: 279.4})
+            panel.perform('refresh')
+            self.wait(lambda: not panel.session.snapshot()['busy'])
             guide.use_john(); self.root.update()
             self.assertEqual(app.paper_mount.get(), 'top_left_y')
             self.assertEqual(presets.load(app.preset_file)['paper_mount'], 'top_left_y')
             self.assertIn('Fits configured', guide.status.get())
+            guide.choice.set('US Letter portrait')
+            guide.paint()
+            self.assertIn('exceeds', guide.status.get())
             self.assertIn('+Y moves right; -X moves down', guide.instructions.get())
             self.assertFalse(panel.session.snapshot()['origin_set'])
             self.assertEqual(int(panel.buttons['Y +'].grid_info()['column']), 2)

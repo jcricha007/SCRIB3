@@ -50,6 +50,16 @@ John reported `M3 S240` as fully raised, then selected `M3 S180` as the preferre
 
 Startup/reset still selects the original M5 position, which John found lower than desired. The preset does not modify or flash firmware.
 
+## Optional pen up on reset for John's Uno
+
+The original build commands timer count **31** when the controller boots, receives a soft reset, or disables its spindle output. That can lower the pen before SCRIB3 can send a command. The optional patch changes the powered servo's default position to count **13**, the same pulse as John's verified lift command `M3 S180` with `$30=1000`, `$31=0`, `$32=0`, and 100% spindle override. His drawing command `M3 S70` still selects count **24**. [Firmware patch](../firmware/john-servo-pen-up.patch)
+
+1. On the original build, check the live settings in **Control → Read GRBL**. With the pen tip clear of the paper, confirm that `M3 S180` raises this linkage fully clear. Also check any stored GRBL startup lines (`$N`), which can issue their own actuator or motion commands after boot.
+2. To prepare a firmware build, work in a copy of the supplied GRBL source tree containing the `grbl/` folder. Run `git apply --check /path/to/john-servo-pen-up.patch` and then `git apply /path/to/john-servo-pen-up.patch`. Build it for the same 16 MHz ATmega328P Uno. Installing this firmware is a separate operation from updating the desktop app.
+3. After installing the firmware, use **Read GRBL** to confirm the build tag `20190830.SCRIB3-UP13`. With the pen removed, check the lift linkage on reset and during a pen-up run. SCRIB3 recognizes the tag when validating M5 and rejects a configured lift below the calibrated raised position on this build.
+
+Both source variants were compiled for the ATmega328P. MCU simulation checked the timer output during startup, a lift, intentional contact, M5, zero PWM, and a GRBL reset. A physical power loss removes servo holding torque, so retention then depends on the linkage.
+
 ## First setup step
 
 1. With the plotter idle, connect the Arduino over USB.

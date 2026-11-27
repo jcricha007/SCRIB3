@@ -7,10 +7,10 @@ from tempfile import TemporaryDirectory
 import tkinter as tk
 from unittest import TestCase, skipUnless
 from unittest.mock import patch, Mock
+from zipfile import ZipFile
 
 from scrib3.app import Studio
 from scrib3.board import Mark
-from scrib3.printer_ui import PrinterWindow
 
 
 @skipUnless(os.environ.get("SCRIB3_DESKTOP_TESTS") == "1", "Desktop display required")
@@ -73,11 +73,12 @@ class CanvasDesktopTests(TestCase):
                 e.undo(True)
                 self.assertEqual(len(e.board.marks), 2)
                 e.all()
-                with patch(
-                    "scrib3.canvas_ui.form",
-                    return_value={"quality": "Fine", "duplicates": "Yes", "joins": "No"},
-                ):
-                    e.clean()
+                clean = e.clean()
+                clean.remove.set(True)
+                clean.update()
+                self.assertEqual(len(e.board.marks), 2)
+                self.assertEqual(len(clean.result), 1)
+                clean.apply()
                 self.assertEqual(len(e.board.marks), 1)
                 p = Path(tmp) / "board.scrib3"
                 with patch("tkinter.filedialog.asksaveasfilename", return_value=str(p)):
@@ -87,18 +88,19 @@ class CanvasDesktopTests(TestCase):
                 with patch("tkinter.filedialog.askopenfilename", return_value=str(p)):
                     e.open()
                 self.assertEqual(e.board, original)
-                w = PrinterWindow(e, "H2S")
+                w = e.printer("H2S")
                 for k, v in dict(offset_x=0, offset_y=-28, contact_z=2, lift_z=5).items():
                     w.fields[k].set(str(v))
                 self.assertIsNotNone(w.preview())
                 self.assertTrue(w.canvas.find_all())
-                root.geometry("800x650")
+                e.root.geometry("800x650")
                 root.update()
                 self.assertTrue(e.canvas.winfo_viewable())
                 self.assertGreater(e.canvas.winfo_width(), 400)
                 studio.show_workbench()
                 root.update()
-                self.assertFalse(e.winfo_viewable())
+                self.assertTrue(e.winfo_viewable())
+                self.assertTrue(studio.controls.winfo_viewable())
                 studio.show_board()
                 root.update()
                 self.assertTrue(e.winfo_viewable())
@@ -117,8 +119,6 @@ class CanvasDesktopTests(TestCase):
                 e.commit(replace(e.board, marks=(Mark("#522d80", ((10, 10), (20, 20))),)))
                 e.pen.set("#522d80")
                 s.firmware.set("Manual commands")
-                s.machine_width.set("20")
-                s.machine_height.set("20")
                 with patch("scrib3.app.PlotJob", side_effect=ValueError("captured")) as job, patch(
                     "tkinter.messagebox.showerror"
                 ):
@@ -131,7 +131,143 @@ class CanvasDesktopTests(TestCase):
                 s.show_workbench()
                 with patch.object(s, "review") as review:
                     s.workspace_action("review")
-                    review.assert_called_once_with()
+                    review.assert_called_once_with(board_editor=e)
+            finally:
+                for after in root.tk.call("after", "info"):
+                    root.after_cancel(after)
+                root.destroy()
+
+    def test_p1s_guide_reviews_and_opens_the_saved_calibration_plate(self):
+        from scrib3.p1s_workflow import DRY_A4, REGISTER, HolderGuide
+
+        with TemporaryDirectory() as tmp:
+            root = tk.Tk()
+            try:
+                studio = Studio(root, Path(tmp) / "preset.json")
+                printer = studio.show_p1s()
+                self.assertIs(printer.window, root)
+                self.assertIsNone(studio.board_window)
+                studio.show_board()
+                self.assertIs(studio.board_editor.printer("P1S"), printer)
+                root.update()
+                self.assertTrue(studio.board_editor.winfo_viewable())
+                guide = HolderGuide(printer)
+                for key, value in dict(nozzle_x=100, nozzle_y=100, tip_x=100,
+                                       tip_y=72, contact_z=2, lift_z=5).items():
+                    guide.measured[key].set(str(value))
+                for _ in range(4):
+                    guide.next()
+                self.assertEqual(printer.holder().offset_y, -28)
+                self.assertEqual(printer.target.get(), DRY_A4)
+                self.assertTrue(printer.dry_button.instate(["disabled"]))
+                self.assertIsNone(printer.preview())
+                printer.fit.set(True)
+                printer.dry.set(False)
+                self.assertTrue(printer.preview().dry)
+                printer.target.set(REGISTER)
+                printer.target_changed()
+                self.assertTrue(printer.dry_button.instate(["!disabled"]))
+                printer.dry.set(False)
+                plan = printer.preview()
+                self.assertEqual(len(plan.passes), 2)
+                path = Path(tmp) / "registration.gcode.3mf"
+                with patch("tkinter.filedialog.asksaveasfilename", return_value=str(Path(tmp) / "registration.3mf")), patch(
+                    "tkinter.messagebox.askokcancel", return_value=True
+                ), patch("scrib3.p1s_workflow.open_in_studio") as handoff:
+                    printer.export(open_studio=True)
+                handoff.assert_called_once_with(path)
+                with ZipFile(path) as archive:
+                    self.assertEqual(archive.read("Metadata/plate_1.gcode"), plan.gcode().encode("ascii"))
+                self.assertFalse(studio.board_editor.board.marks)
+                studio.hide_board()
+                self.assertTrue(studio.p1s_active)
+                studio.show_workbench()
+                root.update()
+                self.assertTrue(studio.controls.winfo_viewable())
+            finally:
+                for after in root.tk.call("after", "info"):
+                    root.after_cancel(after)
+                root.destroy()
+
+    def test_drag_cubic_handle_and_reuse_the_group_on_a_new_board(self):
+        from scrib3.poster_objects import cubic_points
+
+        with TemporaryDirectory() as tmp:
+            root = tk.Tk()
+            try:
+                studio = Studio(root, Path(tmp) / "prefs.json")
+                studio.show_board()
+                root.update()
+                editor = studio.board_editor
+                points = ((40, 50), (48, 28), (70, 32), (85, 50))
+                line = Mark(editor.pen.get(), cubic_points(points), ("Mirror",), controls=points)
+                editor.insert((line,), placed=True)
+                editor.mode.set("Edit nodes")
+                root.update()
+                handle = editor.canvas.find_withtag("point-0-1")[0]
+                x0, y0, x1, y1 = editor.canvas.coords(handle)
+                x, y = round((x0+x1)/2), round((y0+y1)/2)
+                editor.canvas.event_generate("<Button-1>", x=x, y=y)
+                editor.canvas.event_generate("<B1-Motion>", x=x+12, y=y+15)
+                editor.canvas.event_generate("<ButtonRelease-1>", x=x+12, y=y+15)
+                edited = editor.board.marks[0]
+                self.assertNotEqual(edited.controls[1], points[1])
+                self.assertEqual(edited.controls[2:], points[2:])
+                self.assertEqual(edited.points, cubic_points(edited.controls))
+                element = Path(tmp) / "mirror.scrib3"
+                with patch("tkinter.filedialog.asksaveasfilename", return_value=str(element)):
+                    editor.save_asset()
+                with patch("tkinter.messagebox.askyesnocancel", return_value=False):
+                    editor.new()
+                with patch("tkinter.filedialog.askopenfilename", return_value=str(element)):
+                    editor.open_asset()
+                    editor.open_asset()
+                self.assertEqual([m.groups for m in editor.board.marks], [("Mirror",), ("Mirror (2)",)])
+                self.assertEqual(editor.board.marks[0].controls, editor.board.marks[1].controls)
+            finally:
+                for after in root.tk.call("after", "info"):
+                    root.after_cancel(after)
+                root.destroy()
+
+    def test_sheet_template_keeps_title_block_and_custom_artwork(self):
+        from time import monotonic, sleep
+        import trimesh
+        from scrib3.board import load_board
+        from scrib3.engineering_sheet import VIEW_GROUP
+
+        with TemporaryDirectory() as tmp:
+            root = tk.Tk()
+            try:
+                studio = Studio(root, Path(tmp) / "prefs.json")
+                studio.show_board()
+                editor = studio.board_editor
+                logo = Mark(editor.pen.get(), ((20, 20), (25, 25)), (VIEW_GROUP,))
+                editor.insert((logo,), placed=True)
+                model = Path(tmp) / "Bracket.stl"
+                trimesh.creation.box(extents=(30, 20, 10)).export(model)
+                with patch("tkinter.filedialog.askopenfilename", return_value=str(model)):
+                    sheet = editor.engineering_sheet()
+                deadline = monotonic() + 10
+                while sheet.views is None and monotonic() < deadline:
+                    root.update()
+                    sleep(.01)
+                self.assertIsNotNone(sheet.result, sheet.status.get())
+                sheet.apply()
+                self.assertIn(logo, editor.board.marks)
+                self.assertTrue(any(m.sheet_part == "view" for m in editor.board.marks))
+                template = Path(tmp) / "shop.scrib3"
+                with patch("tkinter.filedialog.asksaveasfilename", return_value=str(template)):
+                    editor.save_asset(template=True)
+                stored = load_board(template)
+                self.assertIn(logo, stored.marks)
+                self.assertTrue(any(m.sheet_part == "frame" and m.text for m in stored.marks))
+                self.assertFalse(any(m.sheet_part == "view" for m in stored.marks))
+                with patch("tkinter.filedialog.askopenfilename", return_value=str(template)), patch(
+                    "tkinter.messagebox.askyesnocancel", return_value=False
+                ):
+                    editor.open_asset(template=True)
+                self.assertEqual(editor.board, stored)
+                self.assertIsNone(editor.path)
             finally:
                 for after in root.tk.call("after", "info"):
                     root.after_cancel(after)

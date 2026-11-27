@@ -264,6 +264,7 @@ class ProtocolTests(TestCase):
         eventually(lambda: not self.controller.thread.is_alive())
         self.assertEqual(self.controller.snapshot()["settings"], {})
         self.assertIn("restarted", self.controller.snapshot()["fault"])
+        self.assertNotIn(b"\x18", self.peer.writes)
 
     def test_disconnect_during_motion_sends_reset_before_closing(self):
         self.run_operation("jog", axis="X", distance=1, feed=300)

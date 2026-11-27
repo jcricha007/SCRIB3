@@ -42,6 +42,11 @@ def join_exact_strokes(drawing):
     A vertex inside any stroke (including every vertex of a closed contour)
     blocks joining there. Branches therefore remain explicit pen lifts.
     """
+    return tuple(stroke for _, stroke in joined_strokes_with_indices(drawing))
+
+
+def joined_strokes_with_indices(drawing):
+    """Yield each joined path at its earliest contributing input index."""
     endpoints = defaultdict(list)
     blocked = set()
     for index, stroke in enumerate(drawing):
@@ -59,7 +64,6 @@ def join_exact_strokes(drawing):
         return next((entry for entry in entries if entry[0] != current), None)
 
     used = set()
-    result = []
     for first, stroke in enumerate(drawing):
         if first in used:
             continue
@@ -85,8 +89,7 @@ def join_exact_strokes(drawing):
         points = list(pieces[0])
         for piece in pieces[1:]:
             points.extend(piece[1:])
-        result.append(tuple(points))
-    return tuple(result)
+        yield first, tuple(points)
 
 
 def _rotate_loop(stroke, before, after=None):

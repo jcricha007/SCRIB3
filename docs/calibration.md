@@ -11,7 +11,7 @@ The bundled starting values are X/Y **5.000 steps/mm**, equivalent to **127 step
 3. Select X or Y, a direction with clear travel, and a small requested distance. The default is 0.1 inch / 2.54 mm. Tests are limited to 10 mm at 25 mm/min. **Raise pen + test move** uses the configured lift command and waits at least 0.5 seconds before jogging. **Cancel test** discards the measurement; the regular Cancel jog and Reset / abort controls remain available.
 4. Wait for Idle. Measure the physical travel of the carriage relative to the frame with a ruler or caliper. Enter that positive distance in the units displayed by the guide. It captures its units when opened.
 5. **Calculate correction** previews the new steps/mm. **Apply measured correction** writes only the tested axis, checks the readback, and saves the updated application preset. Reset/reconnect and repeat the measurement to verify it, then calibrate the other axis.
-6. Re-establish manual home/paper zero after calibration. Set usable travel and drawing feed separately before exporting a job.
+6. Re-establish manual home/paper zero after calibration. Confirm the measured travel limits under **Control → Setup → Motion**. SCRIB3 uses these values automatically. Drawing feed is on **Machine**.
 
 The correction is `current steps/mm × controller test travel ÷ measured physical travel`. The guide uses completed controller travel, accounting for whole-step rounding. At 5 steps/mm, a 2.54 mm request can round to 13 steps, or 2.6 mm. A ruler measurement of 2.6 mm should therefore retain 5 steps/mm. For a finer scale measurement, use a longer test up to the 10 mm limit after confirming small moves are correct.
 

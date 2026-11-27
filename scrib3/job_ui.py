@@ -21,9 +21,9 @@ class JobWindow:
         self.progress.pack(fill='x', pady=8)
         buttons = ttk.Frame(panel)
         buttons.pack(fill='x', pady=8)
-        self.pause = ttk.Button(buttons, text='Pause', command=session.pause_job, state='disabled')
+        self.pause = ttk.Button(buttons, text='Pause', command=lambda: session.pause_job(operation), state='disabled')
         self.pause.pack(side='left')
-        self.resume = ttk.Button(buttons, text='Resume', command=session.resume_job, state='disabled')
+        self.resume = ttk.Button(buttons, text='Resume', command=lambda: session.resume_job(operation), state='disabled')
         self.resume.pack(side='left', padx=8)
         self.stop = ttk.Button(buttons, text='Stop print', command=lambda: session.stop_job(operation))
         self.stop.pack(side='left')
@@ -40,7 +40,7 @@ class JobWindow:
         if result and result[0] == self.operation and result[2]:
             self.status.set(result[2])
         elif state == 'completed':
-            self.status.set('Sketch complete. GRBL reports Idle; pen-up command completed.')
+            self.status.set('Sketch complete. The pen-up command finished at the last drawing point. GRBL is idle.')
         elif state == 'stopped' and snap['connected']:
             self.status.set('Print stopped with pen raised. Connection and paper zero retained.')
         elif state in {'failed', 'stopped'}:

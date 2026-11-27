@@ -3,6 +3,7 @@
 from dataclasses import replace
 from math import atan2, degrees, hypot
 from pathlib import Path
+from uuid import uuid4
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 from xml.etree.ElementTree import ParseError
@@ -10,7 +11,8 @@ from xml.etree.ElementTree import ParseError
 from .board import Board, Mark, DEFAULT_PEN, PAPER, bounds, save_board, load_board, export_svg
 from .geometry import shape, hatch, offset, array
 from .svg_artwork import import_svg
-from .lettering import lettering, FONTS
+from .lettering import FONTS, ALIGNMENTS
+from .poster_objects import StrokeText, cubic_points, independent_copy, unused_group
 
 
 def form(parent, title, fields):
@@ -52,7 +54,7 @@ class CanvasEditor(ttk.Frame):
     def __init__(self, parent, studio):
         super().__init__(parent)
         self.studio = studio
-        self.root = studio.root
+        self.root = parent.winfo_toplevel()
         self.board = self.saved = Board()
         self.path = None
         self.history = []
@@ -83,7 +85,9 @@ class CanvasEditor(ttk.Frame):
                 ("Export SVG", self.export),
                 ("Export active pen SVG", lambda: self.export(True)),
                 ("Add workbench artwork", self.add_workbench),
-                ("Machine workbench", studio.show_workbench),
+                ("Save sheet template…", lambda: self.save_asset(template=True)),
+                ("New from template…", lambda: self.open_asset(template=True)),
+                ("Machine & calibration", studio.show_workbench),
             ],
         )
         self.menu(
@@ -93,6 +97,8 @@ class CanvasEditor(ttk.Frame):
                 ("SVG / vector / image", self.import_file),
                 ("Photo art", self.photo),
                 ("3D model", self.mesh),
+                ("Engineering drawing sheet…", self.engineering_sheet),
+                ("Saved element…", self.open_asset),
                 ("GeoJSON map", self.map),
             ],
         )
@@ -103,7 +109,11 @@ class CanvasEditor(ttk.Frame):
                 ("Undo", self.undo),
                 ("Redo", lambda: self.undo(True)),
                 ("Select all", self.all),
-                ("Clean selected paths", self.clean),
+                ("Preview line cleanup…", self.clean),
+                ("Name group…", self.group),
+                ("Select named group…", self.select_group),
+                ("Edit lettering…", lambda: self.text(edit=True)),
+                ("Save selection as element…", self.save_asset),
                 ("Duplicate", self.duplicate),
                 ("Delete", self.delete),
             ],
@@ -172,6 +182,7 @@ class CanvasEditor(ttk.Frame):
             "Pan",
             "Freehand",
             "Bezier",
+            "Edit nodes",
             "Line",
             "Rectangle",
             "Ellipse",
@@ -250,6 +261,9 @@ class CanvasEditor(ttk.Frame):
             "<Control-y>": lambda e: self.undo(True),
             "<Escape>": lambda e: self.cancel(),
         }
+        if self.root.tk.call("tk", "windowingsystem") == "aqua":
+            events.update({"<Command-a>": lambda e: self.all(), "<Command-z>": lambda e: self.undo(),
+                           "<Command-Shift-Z>": lambda e: self.undo(True), "<BackSpace>": lambda e: self.delete()})
         for ev, fn in events.items():
             self.canvas.bind(ev, lambda e, f=fn: self.guard(lambda: f(e)))
         style = ttk.Style(self.root)
@@ -292,6 +306,7 @@ class CanvasEditor(ttk.Frame):
         restyle(self)
         self.sync()
         self.mode.trace_add("write", lambda *_: self.cancel())
+        self.pen.trace_add("write", studio.queue_board_preview)
 
     def guard(self, fn):
         try:
@@ -318,7 +333,7 @@ class CanvasEditor(ttk.Frame):
             self.future.clear()
             self.board = board
             self.revision += 1
-        self.selection = set(selection or ())
+        self.selection = board.text_selection(selection or ())
         self.sync()
 
     def undo(self, redo=False):
@@ -375,6 +390,7 @@ class CanvasEditor(ttk.Frame):
             save_board(Path(target), self.board)
             self.path = Path(target)
             self.saved = self.board
+            self.studio.queue_board_preview()
             self.status.set("Board saved.")
             return True
         return False
@@ -404,7 +420,7 @@ class CanvasEditor(ttk.Frame):
                 self.root,
                 "SVG import",
                 [
-                    ("size", "Placement", ("True size", "Fit to paper")),
+                    ("size", "Placement", ("Keep SVG page coordinates", "Center at true size", "Fit to paper")),
                     ("fill", "Fill", ("Outline", "Horizontal", "Crosshatch", "Concentric")),
                     ("spacing", "Fill spacing mm", 1),
                     ("covered", "Covered lines", ("Hide", "Keep")),
@@ -419,6 +435,7 @@ class CanvasEditor(ttk.Frame):
                         hide_covered=opts["covered"] == "Hide",
                     ),
                     fit=opts["size"] == "Fit to paper",
+                    placed=opts["size"] == "Keep SVG page coordinates",
                 )
         elif p.suffix.lower() in CONVERSION_EXTENSIONS:
             self.studio.import_windows.append(ImportWindow(self, p))
@@ -434,6 +451,7 @@ class CanvasEditor(ttk.Frame):
             raise ValueError("No paths to add.")
         if any(m.color in self.board.hidden | self.board.locked for m in marks):
             raise ValueError("Show and unlock the destination pen layers first.")
+        marks = independent_copy(marks, self.board.marks)
         start = len(self.board.marks)
         ids = range(start, start + len(marks))
         b = replace(self.board, marks=self.board.marks + tuple(marks)).checked()
@@ -473,39 +491,77 @@ class CanvasEditor(ttk.Frame):
         )
 
     def clean(self):
-        from .toolpath import QualityOptions, prepare_toolpath
-
-        chosen = self.selected()
-        if not chosen:
+        from .cleanup_ui import CleanupWindow
+        if not self.selected():
             raise ValueError("Select paths to clean.")
-        d = form(
-            self.root,
-            "Clean selected paths",
-            [
-                ("quality", "Simplification", ("Fine", "Original", "Balanced")),
-                ("duplicates", "Remove exact repeats", ("No", "Yes")),
-                ("joins", "Join exact endpoints", ("No", "Yes")),
-            ],
-        )
-        if not d:
-            return
-        result = []
-        for color in dict.fromkeys(m.color for m in chosen):
-            paths, _ = prepare_toolpath(
-                tuple(m.points for m in chosen if m.color == color),
-                QualityOptions(
-                    d["quality"], d["duplicates"] == "Yes", False, d["joins"] == "Yes", False
-                ),
-            )
-            result.extend(Mark(color, p) for p in paths)
-        remaining = tuple(m for i, m in enumerate(self.board.marks) if i not in self.selection)
-        self.commit(
-            replace(self.board, marks=remaining + tuple(result)),
-            range(len(remaining), len(remaining) + len(result)),
-        )
-        self.status.set(
-            f"Cleaned {len(chosen)} paths to {len(result)} paths. Undo restores the original."
-        )
+        return CleanupWindow(self)
+
+    def group(self):
+        selected = self.board.text_selection(self.selection)
+        if not selected:
+            raise ValueError("Select artwork to group.")
+        values = form(self.root, "Name group", [("name", "Group name", "Artwork")])
+        if values:
+            taken = {m.groups[0] for m in self.board.marks if m.groups}
+            name = unused_group(values["name"], taken)
+            marks = tuple(replace(m, groups=(name, *m.groups)) if i in selected else m
+                          for i, m in enumerate(self.board.marks))
+            self.commit(replace(self.board, marks=marks), selected)
+
+    def select_group(self):
+        groups = sorted({m.groups[:depth] for m in self.board.marks
+                         if m.color not in self.board.hidden | self.board.locked
+                         for depth in range(1, len(m.groups) + 1)})
+        if not groups:
+            raise ValueError("No visible unlocked groups on this board.")
+        choices = {f"{i + 1}. " + " / ".join(g): g for i, g in enumerate(groups)}
+        values = form(self.root, "Select group", [("name", "Group", tuple(choices))])
+        if values:
+            group = choices[values["name"]]
+            self.selection = self.board.text_selection(
+                i for i, m in enumerate(self.board.marks) if m.groups[:len(group)] == group)
+            self.paint()
+
+    def asset_folder(self, template):
+        path = self.studio.preset_file.parent / ("templates" if template else "elements")
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def save_asset(self, template=False):
+        if template:
+            marks = tuple(m for m in self.board.marks if m.sheet_part != "view")
+        else:
+            marks = self.selected()
+            if not marks:
+                raise ValueError("Select the element to save.")
+        title = "Save sheet template" if template else "Save reusable element"
+        path = filedialog.asksaveasfilename(parent=self.root, title=title, initialdir=self.asset_folder(template),
+                                            defaultextension=".scrib3", filetypes=[("SCRIB3", "*.scrib3")])
+        if path:
+            colors = {m.color for m in marks}
+            asset = replace(self.board, marks=marks, hidden=self.board.hidden & colors,
+                            locked=self.board.locked & colors, pen_order=tuple(c for c in self.board.pen_order if c in colors))
+            save_board(Path(path), asset)
+            self.status.set(f"Saved {Path(path).stem}.")
+
+    def open_asset(self, template=False):
+        title = "New from sheet template" if template else "Insert saved element"
+        path = filedialog.askopenfilename(parent=self.root, title=title, initialdir=self.asset_folder(template),
+                                          filetypes=[("SCRIB3", "*.scrib3")])
+        if path:
+            asset = load_board(Path(path))
+            if template:
+                if self.discard():
+                    self.load(asset, None)
+            else:
+                self.insert(asset.marks)
+
+    def engineering_sheet(self):
+        from .engineering_sheet import SheetWindow
+        path = filedialog.askopenfilename(parent=self.root, title="Choose a model for the sheet",
+                                          filetypes=[("Mesh models", "*.stl *.obj *.3mf")])
+        if path:
+            return SheetWindow(self, Path(path))
 
     def duplicate(self):
         self.insert(self.selected(), placed=True)
@@ -594,33 +650,32 @@ class CanvasEditor(ttk.Frame):
                 )
             )
 
-    def text(self):
-        d = form(
-            self.root,
-            "Stroke text",
-            [
-                ("text", "Text", "SCRIB3"),
-                ("font", "Font", tuple(FONTS)),
-                ("size", "Capital height mm", 8),
-                ("tracking", "Tracking", 0),
-                ("line", "Line spacing", 1.5),
-                ("align", "Alignment", ("Left", "Center", "Right")),
-            ],
-        )
-        if d:
-            k = float(d["size"]) / 21
-            if not 0.01 <= k <= 50:
-                raise ValueError("Text height is out of range.")
-            paths = lettering(
-                d["text"].replace("\\n", "\n"),
-                d["font"],
-                d["align"],
-                float(d["tracking"]),
-                float(d["line"]),
-            )
-            self.insert(
-                tuple(Mark(self.pen.get(), tuple((x * k, y * k) for x, y in s)) for s in paths)
-            )
+    def text(self, edit=False):
+        chosen = self.selected() if edit else ()
+        if edit and (not chosen or chosen[0].text is None or any(m.text != chosen[0].text for m in chosen)):
+            raise ValueError("Select one lettering object to edit.")
+        original = chosen[0].text if edit else StrokeText(uuid4().hex)
+        def preferred(current, choices):
+            return (current, *(v for v in choices if v != current))
+        d = form(self.root, "Edit lettering" if edit else "Stroke text", [
+            ("text", r"Text (use \n for a new line)", original.value.replace("\n", "\\n")),
+            ("font", "Font", preferred(original.font, FONTS)),
+            ("size", "Capital height mm", original.height), ("tracking", "Tracking", original.tracking),
+            ("line", "Line spacing", original.spacing), ("align", "Alignment", preferred(original.alignment, ALIGNMENTS))])
+        if not d:
+            return
+        spec = replace(original, value=d["text"].replace("\\n", "\n"), font=d["font"], height=float(d["size"]),
+                       tracking=float(d["tracking"]), spacing=float(d["line"]), alignment=d["align"])
+        if not edit:
+            self.insert(spec.marks(self.pen.get()))
+            return
+        marks = tuple(replace(m, sheet_part=chosen[0].sheet_part)
+                      for m in spec.marks(chosen[0].color, chosen[0].groups))
+        selected = self.board.text_selection(self.selection)
+        first = min(selected)
+        updated = self.board.marks[:first] + marks + tuple(
+            m for i, m in enumerate(self.board.marks[first:], first) if i not in selected)
+        self.commit(replace(self.board, marks=updated), range(first, first + len(marks)))
 
     def qr(self):
         from .creator import qr_paths
@@ -766,6 +821,7 @@ class CanvasEditor(ttk.Frame):
             self.commit(replace(self.board, pen_order=tuple(colors)))
 
     def sync(self):
+        self.studio.queue_board_preview()
         self.layers.delete(0, "end")
         for i, c in enumerate(self.colors()):
             label = f"{c}  {sum(m.color==c for m in self.board.marks)}"
@@ -834,7 +890,23 @@ class CanvasEditor(ttk.Frame):
                 width=2 if i in self.selection else 1.2,
                 tags=(f"p{i}", "art"),
             )
-        if self.selection:
+        if self.mode.get() == "Edit nodes" and len(self.selection) == 1:
+            index = next(iter(self.selection))
+            mark = b.marks[index]
+            if not mark.text:
+                points = mark.controls or mark.points
+                if mark.controls:
+                    cv.create_line(*[v for x, y in points for v in (l+x*k, t+y*k)], fill="#52839a", dash=(3, 3))
+                previous = None
+                for node, (x, y) in enumerate(points):
+                    px, py = l+x*k, t+y*k
+                    if not mark.controls and previous and node < len(points)-1 and hypot(px-previous[0], py-previous[1]) < 6:
+                        continue
+                    if -6 <= px <= w+6 and -6 <= py <= h+6:
+                        previous = px, py
+                        cv.create_rectangle(px-3, py-3, px+3, py+3, fill="white", outline="#008088",
+                                            tags=(f"point-{index}-{node}", "node"))
+        elif self.selection:
             a, bb, c, d = bounds(self.selected())
             x0, y0, x1, y1 = l + a * k, t + bb * k, l + c * k, t + d * k
             cv.create_rectangle(x0, y0, x1, y1, outline="#0091b2", dash=(4, 3))
@@ -858,6 +930,10 @@ class CanvasEditor(ttk.Frame):
         hit = None
         for item in reversed(self.canvas.find_overlapping(e.x - 4, e.y - 4, e.x + 4, e.y + 4)):
             tags = self.canvas.gettags(item)
+            if mode == "Edit nodes" and "node" in tags:
+                index, node = map(int, tags[0].split("-")[1:])
+                self.drag = ("Node", p, (e.x, e.y), self.board, (index, node), self.pan)
+                return
             if mode == "Select" and ("scale" in tags or "rotate" in tags):
                 mode = tags[0]
                 break
@@ -866,36 +942,33 @@ class CanvasEditor(ttk.Frame):
                 if self.board.marks[idx].color not in self.board.locked:
                     hit = idx
                     break
+        if mode == "Edit nodes":
+            if hit is not None and self.board.marks[hit].text:
+                raise ValueError("Use Edit lettering for a text object.")
+            self.selection = {hit} if hit is not None else set()
+            self.paint()
+            return
         if mode == "Bezier":
             if self.pen.get() in self.board.hidden | self.board.locked:
                 raise ValueError("Show and unlock the drawing pen first.")
             self.bezier_points.append(p)
             self.status.set(f"Bezier control points {len(self.bezier_points)}/4")
             if len(self.bezier_points) == 4:
-                from svgelements import CubicBezier
-                from .curves import flatten_segment
-
-                curve = CubicBezier(*(complex(x, y) for x, y in self.bezier_points))
-                self.commit(
-                    replace(
-                        self.board,
-                        marks=self.board.marks
-                        + (
-                            Mark(
-                                self.pen.get(),
-                                (self.bezier_points[0], *flatten_segment(curve, 0.025, 4096)),
-                            ),
-                        ),
-                    )
-                )
+                controls = tuple(self.bezier_points)
+                mark = Mark(self.pen.get(), cubic_points(controls), controls=controls)
+                self.commit(replace(self.board, marks=(*self.board.marks, mark)), [len(self.board.marks)])
                 self.bezier_points = []
             return
         if mode == "Select":
             if hit is not None:
                 if e.state & 1:
-                    self.selection ^= {hit}
+                    members = self.board.text_selection([hit])
+                    if members <= self.selection:
+                        self.selection -= members
+                    else:
+                        self.selection |= members
                 elif hit not in self.selection:
-                    self.selection = {hit}
+                    self.selection = self.board.text_selection([hit])
                 mode = "Move"
             else:
                 if not e.state & 1:
@@ -903,7 +976,7 @@ class CanvasEditor(ttk.Frame):
                 mode = "Box"
         if mode == "Eraser":
             if hit is not None:
-                self.selection = {hit}
+                self.selection = self.board.text_selection([hit])
                 self.delete()
             return
         self.drag = (mode, p, (e.x, e.y), self.board, [p], self.pan)
@@ -918,6 +991,14 @@ class CanvasEditor(ttk.Frame):
         if mode == "Pan":
             self.pan = (pan[0] + e.x - pixel[0], pan[1] + e.y - pixel[1])
             self.paint()
+        elif mode == "Node":
+            index, node = trail
+            mark = b.marks[index]
+            pts = list(mark.controls or mark.points)
+            pts[node] = q
+            preview = cubic_points(pts) if mark.controls else pts
+            self.canvas.create_line(*[v for x, y in preview for v in (self.left + x*self.k, self.top + y*self.k)],
+                                    fill="#008e91", width=2, tags="ghost")
         elif mode == "Freehand":
             trail.append(q)
             self.canvas.create_line(
@@ -939,6 +1020,17 @@ class CanvasEditor(ttk.Frame):
         self.canvas.delete("ghost")
         if mode == "Pan":
             return
+        if mode == "Node":
+            index, node = trail
+            mark = b.marks[index]
+            pts = list(mark.controls or mark.points)
+            if pts[0] == pts[-1] and node in (0, len(pts) - 1):
+                pts[0] = pts[-1] = q
+            pts[node] = q
+            controls = tuple(pts) if mark.controls else ()
+            changed = replace(mark, points=cubic_points(controls) if controls else tuple(pts), controls=controls)
+            self.commit(replace(b, marks=(*b.marks[:index], changed, *b.marks[index+1:])), [index])
+            return
         if mode == "Box":
             a, c = sorted((p[0], q[0]))
             bb, d = sorted((p[1], q[1]))
@@ -948,9 +1040,11 @@ class CanvasEditor(ttk.Frame):
                 if m.color not in b.hidden | b.locked
                 and all(a <= x <= c and bb <= y <= d for x, y in m.points)
             }
+            self.selection = b.text_selection(self.selection)
             self.paint()
         elif mode == "Move":
-            self.transform(dx=q[0] - p[0], dy=q[1] - p[1])
+            if self.selection and q != p:
+                self.transform(dx=q[0] - p[0], dy=q[1] - p[1])
         elif mode in ("scale", "rotate"):
             a, bb, c, d = bounds(self.selected())
             cx, cy = (a + c) / 2, (bb + d) / 2
@@ -998,9 +1092,11 @@ class CanvasEditor(ttk.Frame):
         tick()
 
     def printer(self, model):
+        if model == "P1S":
+            return self.studio.show_p1s()
         from .printer_ui import PrinterWindow
 
-        PrinterWindow(self, model)
+        return PrinterWindow(self.studio, model, parent=self.root)
 
     def run_passes(self):
         from .pass_ui import PassWindow

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from test_controller import FakeSerial
 from scrib3.app import Studio
+from scrib3.board import Mark
 from scrib3.controller import Controller
 from scrib3.discovery import Device
 from scrib3.firmware import SERVO_PROFILE
@@ -63,7 +64,7 @@ class DesktopTests(TestCase):
             studio.paper_width.set(str(148/25.4)); studio.paper_height.set(str(105/25.4))
             studio.margin.set(str(7/25.4)); studio.refresh()
             panel = self.panel = studio.controls
-            studio.tabs.select(panel)
+            assert studio.tabs.select() == str(panel)
             def wait(predicate, timeout=5):
                 deadline = monotonic() + timeout
                 while monotonic() < deadline:
@@ -151,6 +152,29 @@ class DesktopTests(TestCase):
             wait(lambda: not panel.session.snapshot()['busy'])
             assert panel.session.snapshot()['work'] == (0, 0, 0)
             assert panel.state_text.get() == 'Idle · paper origin set'
+            session = panel.session
+            reference = session.snapshot()
+            writes = [w for w in peer.writes if w != b'?']
+            studio.show_board()
+            root.update()
+            editor = studio.board_editor
+            assert editor.winfo_toplevel() != panel.winfo_toplevel()
+            assert editor.winfo_viewable() and panel.winfo_viewable()
+            line = Mark(editor.pen.get(), ((3, 3), (13, 3)))
+            editor.insert((line,), placed=True)
+            root.update()
+            assert '1 path  ' in studio.monitor_summary.get()
+            studio.hide_board()
+            root.update()
+            assert not editor.winfo_viewable() and panel.winfo_viewable()
+            studio.show_board()
+            root.update()
+            assert studio.board_editor is editor and editor.board.marks == (line,)
+            assert panel.session is session and session.snapshot()['connected']
+            for field in ('origin_set', 'work', 'reference', 'manual_home'):
+                assert session.snapshot()[field] == reference[field]
+            assert [w for w in peer.writes if w != b'?'] == writes
+            studio.hide_board()
             studio.firmware.set(SERVO_PROFILE)
             studio.pen_up.set('M3 S180'); studio.pen_down.set('M3 S70')
             panel.buttons['Pen down'].invoke()
@@ -158,12 +182,14 @@ class DesktopTests(TestCase):
             panel.buttons['Pen up'].invoke()
             wait(lambda: not panel.session.snapshot()['busy'])
             assert b'M3 S180.000\n' in peer.writes and b'M3 S70.000\n' in peer.writes
-            panel.copy_travel()
-            assert studio.machine_width.get() == '200'
+            machine_labels = {str(w.cget('text')) for w in descendants(studio.motion_defaults_button.master)
+                              if w.winfo_class() in ('TLabel', 'TButton')}
+            assert not any(label.startswith(('Usable X', 'Usable Y', 'Use controller travel')) for label in machine_labels)
+            assert studio.travel_limits() == (200, 200)
             panel.buttons['Read GRBL'].invoke()
             wait(lambda: not panel.session.snapshot()['busy'])
             for w in root.winfo_children():
-                if isinstance(w, tk.Toplevel):
+                if isinstance(w, tk.Toplevel) and w is not studio.board_window:
                     w.destroy()
             studio.unit_choice.set('Inches')
             studio.change_units()
@@ -172,13 +198,14 @@ class DesktopTests(TestCase):
                 assert 'G20 G90' in review.call_args.args[1]
                 assert 'M3 S180.000' in review.call_args.args[1]
             for w in root.winfo_children():
-                if isinstance(w, tk.Toplevel):
+                if isinstance(w, tk.Toplevel) and w is not studio.board_window:
                     w.destroy()
             studio.auto_motion_defaults.set(False)
             studio.save_preset()
             saved = presets.read(preset_file)
             assert saved['units'] == 'in' and saved['pen_down'] == 'M3 S70'
-            assert abs(saved['machine_width_mm'] - 200) < .00001
+            assert (saved['machine_width_mm'], saved['machine_height_mm']) == (200, 200)
+            assert not any(w.startswith((b'$130=', b'$131=')) for w in peer.writes)
             layout_fits(panel)
 
             assert not errors, errors
@@ -195,5 +222,5 @@ class DesktopTests(TestCase):
             assert self.panel.session is None
             assert not studio.auto_motion_defaults.get()
             assert abs(float(studio.feed.get()) - 4) < .00001
-            assert abs(to_mm(studio.machine_width.get(), studio.unit) - 200) < .00001
+            assert studio.travel_limits() == (200, 200)
             destroy_root()

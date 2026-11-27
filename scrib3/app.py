@@ -16,9 +16,11 @@ from .quality_ui import QualityWindow
 from .import_ui import ImportWindow
 from .artwork_import import CONVERSION_EXTENSIONS, IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
-from .paper_mount import origin_corner
+from .paper_mount import origin_corner, required_travel
+from .motion_profile import START_HOLD_SECONDS
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
+from .controller import TRAVEL_READ_ERROR, controller_travel
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet
 from .gcode import Machine, write_program
@@ -31,7 +33,7 @@ from .theme import INK, MUTED, BACKGROUND, DESK, PAPER, ACCENT, TRAVEL
 class Studio:
     def __init__(self, root: tk.Tk, preset_file: Path | None = None) -> None:
         self.root = root
-        root.title("SCRIB3 | Pen Plotter Studio")
+        root.title("SCRIB3 | Machine & calibration")
         root.geometry("1280x820")
         root.minsize(800, 650)
         root.configure(background=BACKGROUND)
@@ -69,15 +71,14 @@ class Studio:
         self.show_travel = tk.BooleanVar(value=False)
         self.show_original = tk.BooleanVar(value=False)
         self.source_name = tk.StringVar(value="Mountain contours")
-        self.status = tk.StringVar(value="Sample loaded. Import artwork or create a pattern.")
+        self.status = tk.StringVar(value="Choose a port to connect, or open the drawing board.")
         self.stats = tk.StringVar()
         self.metric_points = tk.StringVar()
         self.metric_strokes = tk.StringVar()
         self.metric_travel = tk.StringVar()
         self.quality_summary = tk.StringVar()
         self.model = tk.StringVar(value=data["ollama_model"])
-        self.machine_width = tk.StringVar(value="" if data["machine_width_mm"] is None else display(data["machine_width_mm"], self.unit))
-        self.machine_height = tk.StringVar(value="" if data["machine_height_mm"] is None else display(data["machine_height_mm"], self.unit))
+        self.saved_travel = (data["machine_width_mm"], data["machine_height_mm"])
         self.feed = tk.StringVar(value="" if data["feed_mm_min"] is None else display(data["feed_mm_min"], self.unit))
         self.pen_up = tk.StringVar(value=data["pen_up"])
         self.pen_down = tk.StringVar(value=data["pen_down"])
@@ -89,46 +90,111 @@ class Studio:
         self.firmware = tk.StringVar(value=data["firmware"])
         self.controller_report: tuple[str, int, str] | None = None
 
+        self.board_window = None
+        self.board_active = False
+        self.p1s_output = None
+        self.p1s_active = False
+        self.monitor_pending = None
         self.build_layout()
-        root.bind('<Control-o>', lambda _event: self.workspace_action('open'))
-        root.bind('<Control-i>', lambda _event: self.workspace_action('import'))
-        root.bind('<Control-s>', lambda _event: self.workspace_action('save'))
-        root.bind('<Control-r>', lambda _event: self.workspace_action('review'))
+        self.bind_workspace(root, board=False)
+        self.tabs.select(self.controls)
         self.paper_mount.trace_add('write', self.mount_changed)
         root.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.refresh()
         if load_warning:
             self.status.set(load_warning)
 
-    def workspace_action(self, action):
+    def bind_workspace(self, window, *, board):
+        modifiers = ["Control"]
+        if window.tk.call("tk", "windowingsystem") == "aqua":
+            modifiers.append("Command")
+        for modifier in modifiers:
+            for key, action in (("o", "open"), ("i", "import"), ("s", "save"), ("r", "review")):
+                window.bind(f"<{modifier}-{key}>",
+                            lambda event, action=action: self.workspace_action(action, board=board))
+        window.bind("<FocusIn>", lambda event: setattr(self, "board_active", board), add="+")
+
+    def workspace_action(self, action, board=None):
         editor = getattr(self, 'board_editor', None)
-        if editor is not None and editor.winfo_manager():
-            if action == 'review':
-                self.review(board_editor=editor)
+        from_board = self.board_active if board is None else board
+        machine_tab = self.tabs.select() != str(self.design_tab)
+        if action == "review" and not from_board and self.p1s_active:
+            self.p1s_output.preview()
+            return "break"
+        if action == "review":
+            if from_board or machine_tab:
+                if editor and editor.board.pens():
+                    self.review(board_editor=editor)
+                else:
+                    self.show_board()
             else:
-                editor.guard({'open': editor.open, 'save': editor.save, 'import': editor.import_file}[action])
-        elif action == 'review':
-            self.review()
-        elif action != 'save':
+                self.review()
+        elif from_board or machine_tab or self.p1s_active:
+            if not from_board:
+                self.show_board()
+                editor = self.board_editor
+            editor.guard({"open": editor.open, "save": editor.save, "import": editor.import_file}[action])
+        elif action != "save":
             self.import_drawing()
         return 'break'
 
     def on_board(self):
-        return hasattr(self, 'board_editor') and bool(self.board_editor.winfo_manager())
+        return self.board_active
 
     def show_board(self):
-        if not hasattr(self, 'board_editor'):
+        if self.board_window is None:
             from .canvas_ui import CanvasEditor
-            self.board_editor = CanvasEditor(self.root, self)
-        self.workbench.pack_forget()
-        self.board_editor.pack(fill='both', expand=True)
+            self.board_window = tk.Toplevel(self.root)
+            self.board_window.title("SCRIB3 | Drawing board")
+            self.board_window.geometry("1180x760")
+            self.board_window.minsize(800, 600)
+            self.board_editor = CanvasEditor(self.board_window, self)
+            self.board_editor.pack(fill="both", expand=True)
+            self.bind_workspace(self.board_window, board=True)
+            self.board_window.protocol("WM_DELETE_WINDOW", self.hide_board)
+        self.board_window.deiconify()
+        self.board_window.lift()
         self.board_editor.canvas.focus_set()
+        self.board_active = True
+        self.queue_board_preview()
+
+    def hide_board(self):
+        self.board_editor.cancel()
+        self.board_window.withdraw()
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_set()
+        self.board_active = False
 
     def show_workbench(self):
-        if hasattr(self, 'board_editor'):
-            self.board_editor.cancel()
-            self.board_editor.pack_forget()
-        self.workbench.pack(fill='both', expand=True)
+        if self.p1s_active:
+            self.p1s_panel.pack_forget()
+            self.machine_body.pack(fill="both", expand=True)
+            self.p1s_active = False
+            self.target_button.configure(text="P1S setup", command=self.show_p1s)
+            self.queue_board_preview()
+        self.root.deiconify()
+        self.root.lift()
+        self.tabs.select(self.controls)
+        self.controls.focus_set()
+        self.board_active = False
+
+    def show_p1s(self):
+        from .printer_ui import PrinterWindow
+
+        if self.p1s_output is None:
+            self.p1s_panel = ttk.Frame(self.workbench)
+            self.p1s_output = PrinterWindow(self, "P1S", container=self.p1s_panel)
+        self.machine_body.pack_forget()
+        self.p1s_panel.pack(fill="both", expand=True)
+        self.p1s_active = True
+        self.target_button.configure(text="GRBL controls", command=self.show_workbench)
+        self.review_button.configure(text="Preview P1S job", state="normal")
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_set()
+        self.board_active = False
+        return self.p1s_output
 
     def configure_theme(self) -> None:
         self.ui_font = theme.configure(self.root)
@@ -139,11 +205,13 @@ class Studio:
         header = ttk.Frame(frame)
         header.pack(fill="x", pady=(0, 3))
         ttk.Label(header, text="SCRIB3", style="Brand.TLabel").pack(side="left")
-        ttk.Button(header, text="Review G-code", style="Primary.TButton", command=self.review).pack(
-            side="right", pady=1
-        )
+        self.review_button = ttk.Button(header, text="Review board pen", style="Primary.TButton",
+                                        command=lambda: self.workspace_action("review", board=False))
+        self.review_button.pack(side="right", pady=1)
 
-        ttk.Button(header, text="Board editor", command=self.show_board).pack(side="right", padx=6)
+        ttk.Button(header, text="Open drawing board", command=self.show_board).pack(side="right", padx=6)
+        self.target_button = ttk.Button(header, text="P1S setup", command=self.show_p1s)
+        self.target_button.pack(side="right")
         unit_bar = ttk.Frame(header)
         unit_bar.pack(side="right", padx=12)
         ttk.Label(unit_bar, text="Units").pack(side="left", padx=(0, 5))
@@ -159,11 +227,11 @@ class Studio:
         self.status_label.pack(side='left', fill='x', expand=True)
         status_bar.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(200, event.width-140)))
         ttk.Separator(frame).pack(side="bottom", fill="x", pady=(3, 2))
-        body = ttk.Frame(frame)
+        body = self.machine_body = ttk.Frame(frame)
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
-        workspace = ttk.Frame(body)
+        workspace = self.legacy_panel = ttk.Frame(body)
         workspace.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         toolbar = ttk.Frame(workspace)
         toolbar.pack(fill="x", pady=(0, 7))
@@ -213,7 +281,59 @@ class Studio:
         self.controls = ControlPanel(tabs, self)
         tabs.add(self.controls, text="Control")
         self.tabs = tabs
+        self.design_tab = drawing
+        self.monitor = ttk.Frame(body, padding=(0, 4))
+        self.monitor.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        self.monitor_title = tk.StringVar(value="Drawing board")
+        ttk.Label(self.monitor, textvariable=self.monitor_title, style="Title.TLabel").pack(anchor="w", pady=4)
+        self.monitor_canvas = tk.Canvas(self.monitor, background=PAPER, highlightthickness=0)
+        self.monitor_canvas.pack(fill="both", expand=True)
+        self.monitor_canvas.bind("<Configure>", self.queue_board_preview)
+        self.monitor_summary = tk.StringVar()
+        ttk.Label(self.monitor, textvariable=self.monitor_summary, wraplength=480).pack(anchor="w", pady=6)
+        tabs.bind("<<NotebookTabChanged>>", self.switch_machine_view)
+        self.switch_machine_view()
         ttk.Label(status_bar, textvariable=self.controls.state_text, style='Badge.TLabel').pack(side='right', padx=(10, 0))
+
+    def switch_machine_view(self, *_):
+        if self.p1s_active:
+            return
+        if self.tabs.select() == str(self.design_tab):
+            self.monitor.grid_remove()
+            self.legacy_panel.grid()
+            self.review_button.configure(text="Review G-code", state="normal")
+        else:
+            self.legacy_panel.grid_remove()
+            self.monitor.grid()
+            self.queue_board_preview()
+
+    def queue_board_preview(self, *_):
+        if self.monitor_pending is None:
+            self.monitor_pending = self.root.after_idle(self.draw_board_preview)
+
+    def draw_board_preview(self):
+        from .preview_canvas import paint_paths
+
+        self.monitor_pending = None
+        if self.p1s_active or self.tabs.select() == str(self.design_tab):
+            return
+        editor = getattr(self, "board_editor", None)
+        board = editor.board if editor else None
+        pens = board.pens() if board else ()
+        color = editor.pen.get() if editor else ""
+        self.monitor_title.set(editor.path.stem if editor and editor.path else "Drawing board")
+        self.review_button.configure(text="Review board pen", state="normal" if color in pens else "disabled")
+        cv = self.monitor_canvas
+        cv.delete("all")
+        if not pens:
+            self.monitor_summary.set("Open the drawing board to add artwork. Manual controls are available independently.")
+            return
+        visible = tuple(m for m in board.marks if m.color not in board.hidden)
+        paint_paths(cv, [(visible, None, 0)], (0, 0, board.width, board.height))
+        paths_label = "path" if len(visible) == 1 else "paths"
+        pens_label = "pen" if len(pens) == 1 else "pens"
+        self.monitor_summary.set(f"{board.width:g} × {board.height:g} mm  ·  {len(visible):,} {paths_label}  ·  "
+                                 f"{len(pens)} {pens_label}  ·  Selected pen {color}")
 
     def build_drawing_tab(self, panel: ttk.Frame) -> None:
         title = ttk.Frame(panel)
@@ -266,29 +386,24 @@ class Studio:
         panel = settings_panel
         ttk.Label(panel, text="Plotter settings", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
         for row, (label, variable) in enumerate((
-            ("Usable X travel ({unit})", self.machine_width),
-            ("Usable Y travel ({unit})", self.machine_height),
             ("Draw feed ({unit}/min)", self.feed),
             ("Pen up command", self.pen_up),
             ("Pen down command", self.pen_down),
-            ("Pen settle (sec)", self.settle),
+            ("Pen settle (seconds)", self.settle),
         ), start=1):
             self.field(panel, row, label, variable)
-        ttk.Label(panel, text="Z pen commands use mm; servo S values are unitless.",
-                  style="Muted.TLabel", wraplength=320).grid(row=7, columnspan=2, sticky="w", pady=(6, 0))
-        motion_actions = ttk.Frame(panel)
-        motion_actions.grid(row=8, columnspan=2, sticky='ew', pady=(3, 2))
-        ttk.Button(motion_actions, text="Use controller travel", padding=(5, 6),
-                   command=lambda: self.controls.copy_travel()).pack(side='left', fill='x', expand=True)
-        self.motion_defaults_button = ttk.Button(motion_actions, text='Smooth motion', padding=(5, 6),
+        ttk.Label(panel, text="Pen settle pauses after each lift or drop. Sketches use at least 0.5 seconds.\n"
+                              "Z commands use mm. Servo S values are unitless.",
+                  style="Muted.TLabel", wraplength=320).grid(row=5, columnspan=2, sticky="w", pady=(6, 0))
+        self.motion_defaults_button = ttk.Button(panel, text='Smooth motion', padding=(5, 6),
                                                 command=lambda: MotionDefaultsWindow(self))
-        self.motion_defaults_button.pack(side='right', fill='x', expand=True, padx=(5, 0))
-        ttk.Separator(panel).grid(row=9, columnspan=2, sticky="ew", pady=6)
-        self.field(panel, 10, "Preset name", self.preset_name)
-        ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=11, column=0, sticky="ew", pady=4)
-        ttk.Button(panel, text="Restore John's", command=self.restore_preset).grid(row=11, column=1, sticky="ew", pady=4)
+        self.motion_defaults_button.grid(row=6, columnspan=2, sticky="ew", pady=(3, 2))
+        ttk.Separator(panel).grid(row=7, columnspan=2, sticky="ew", pady=6)
+        self.field(panel, 8, "Preset name", self.preset_name)
+        ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=9, column=0, sticky="ew", pady=4)
+        ttk.Button(panel, text="Restore John's", command=self.restore_preset).grid(row=9, column=1, sticky="ew", pady=4)
         ttk.Label(panel, text="Saved presets reload when SCRIB3 opens.\nFirmware startup/reset still uses the M5 position.",
-                  style="Muted.TLabel", wraplength=320).grid(row=12, columnspan=2, sticky="w", pady=(4, 0))
+                  style="Muted.TLabel", wraplength=320).grid(row=10, columnspan=2, sticky="w", pady=(4, 0))
 
     def field(self, panel: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
         widget = ttk.Label(panel, text=label.format(unit=self.unit))
@@ -299,10 +414,18 @@ class Studio:
 
     def dimension_fields(self):
         return {"paper_width_mm": self.paper_width, "paper_height_mm": self.paper_height,
-                "margin_mm": self.margin, "machine_width_mm": self.machine_width,
-                "machine_height_mm": self.machine_height, "feed_mm_min": self.feed,
+                "margin_mm": self.margin, "feed_mm_min": self.feed,
                 "jog_step_mm": self.controls.step, "jog_feed_mm_min": self.controls.rate,
                 "seam_overlap_mm": self.seam_overlap}
+
+    def travel_limits(self, snapshot=None):
+        """Use the connected plotter’s travel limits in mm, or the saved limits offline."""
+        if snapshot is None:
+            session = self.controls.session
+            snapshot = session.snapshot() if session else {}
+        if snapshot.get("connected"):
+            return controller_travel(snapshot["settings"])
+        return self.saved_travel
 
     def update_unit_labels(self):
         for label, template in self.unit_labels:
@@ -333,7 +456,11 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
+            x_travel, y_travel = self.travel_limits()
+            if x_travel is None or y_travel is None:
+                x_travel, y_travel = self.saved_travel
             values.update(schema_version=8, name=self.preset_name.get(), units=self.unit,
+                          machine_width_mm=x_travel, machine_height_mm=y_travel,
                           quality_mode=self.quality_mode.get(), remove_duplicates=self.remove_duplicates.get(),
                           join_strokes=self.join_strokes.get(), reloop=self.reloop.get(),
                           auto_motion_defaults=self.auto_motion_defaults.get(),
@@ -346,11 +473,13 @@ class Studio:
             messagebox.showerror("Save preset", str(exc), parent=self.root)
             return False
         else:
+            self.saved_travel = (x_travel, y_travel)
             self.status.set(f"Saved {values['name']}. These settings will reload next time.")
             return True
 
     def restore_preset(self):
         data = presets.builtin()
+        self.saved_travel = (data["machine_width_mm"], data["machine_height_mm"])
         self.calibration = {100: data["x_steps_per_mm"], 101: data["y_steps_per_mm"]}
         self.unit = data["units"]
         self.unit_choice.set(UNIT_NAMES[self.unit])
@@ -486,8 +615,10 @@ class Studio:
             self.assistant.window.lift()
 
     def shutdown(self):
-        if hasattr(self, "board_editor") and not self.board_editor.discard():
-            return
+        if hasattr(self, "board_editor") and self.board_editor.board != self.board_editor.saved:
+            self.show_board()
+            if not self.board_editor.discard():
+                return
         if hasattr(self, "board_editor"):
             self.board_editor.cancel()
         for window in self.import_windows:
@@ -573,10 +704,13 @@ class Studio:
         self.controls.read_report()
 
     def review(self, board_editor=None, on_complete=None, initial_dry=True) -> None:
+        parent = board_editor.root if board_editor is not None else self.root
+        session = self.controls.session
+        snap = session.snapshot() if session else {}
         try:
-            if self.controls.session and self.controls.session.snapshot()["reset_required"]:
+            if snap.get("reset_required"):
                 raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
-            if self.controls.session and self.controls.session.snapshot().get('motion_defaults_pending'):
+            if snap.get('motion_defaults_pending'):
                 raise ValueError('Wait for automatic motion setup to finish before reviewing a job.')
             if board_editor is None:
                 self.refresh()
@@ -592,14 +726,16 @@ class Studio:
                 if self.controller_report is None or self.controller_report[:2] != (self.port.get(), int(self.baud.get())):
                     raise ValueError("Read GRBL on the selected port to check the uploaded servo profile.")
                 servo = ServoSettings.from_report(self.controller_report[2])
+            x_travel, y_travel = self.travel_limits(snap)
+            if snap.get("connected") and (x_travel is None or y_travel is None):
+                raise ValueError(TRAVEL_READ_ERROR)
+            paper_x, paper_y = required_travel(sheet.width, sheet.height, self.paper_mount.get())
             machine = Machine(
-                to_mm(self.machine_width.get(), self.unit), to_mm(self.machine_height.get(), self.unit),
+                x_travel if x_travel is not None else paper_x, y_travel if y_travel is not None else paper_y,
                 to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
                 servo=servo, paper_mount=self.paper_mount.get(), seam_overlap=to_mm(self.seam_overlap.get(), self.unit),
             )
             machine = replace(machine, settle=max(.5, machine.settle))
-            session = self.controls.session
-            snap = session.snapshot() if session else {}
             job = PlotJob(drawing, sheet, machine, self.unit, initial_dry,
                           tuple(sorted(snap.get('settings', {}).items())), snap.get('reference', -1))
             review = job.review()
@@ -607,14 +743,19 @@ class Studio:
         except ValueError as exc:
             error = str(exc)
             if "could not convert string to float" in error:
-                error = "Enter the plotter’s X/Y travel, draw feed, and verified pen commands on the Machine tab."
-            messagebox.showerror("Review G-code", error, parent=self.root)
+                error = "Enter a numeric drawing feed and pen settle time on the Machine tab."
+            messagebox.showerror("Review G-code", error, parent=parent)
             return
         def preview(review):
             lines = review.program.splitlines()
-            return (review.summary() + "\n\n" + "\n".join(lines[:400]) +
+            travel_note = ""
+            if not snap.get("connected"):
+                travel_note = ("Offline review uses saved travel limits." if None not in (x_travel, y_travel)
+                               else "Offline review uses paper bounds for axes without a saved travel limit.")
+                travel_note += " Connect and review again to run.\n\n"
+            return (travel_note + review.summary() + "\n\n" + "\n".join(lines[:400]) +
                     (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else ''))
-        dialog, controls = self.text_dialog("G-code review / Run sketch", preview(review))
+        dialog, controls = self.text_dialog("G-code review / Run sketch", preview(review), parent=parent)
         dialog.geometry('680x540')
         dry_run = tk.BooleanVar(value=initial_dry)
         def update_preview():
@@ -630,7 +771,8 @@ class Studio:
                         command=update_preview).pack(anchor='w')
         corner = origin_corner(machine.paper_mount)
         direction = '+Y right, -X down' if machine.paper_mount == 'top_left_y' else '+X right, +Y up'
-        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. First point hold: 5 seconds. Minimum pen settle: 0.5 seconds. '
+        ttk.Label(controls, text=f'Paper zero at the {corner} corner ({direction}). The pen waits {START_HOLD_SECONDS} seconds at the first '
+                  'point, then finishes raised at the last point. Minimum pen settle is 0.5 seconds. '
                   f'Closed-loop overlap: {display(machine.seam_overlap, self.unit)} {self.unit}.',
                   wraplength=630, style='Muted.TLabel').pack(anchor='w', pady=4)
         actions = ttk.Frame(controls)
@@ -662,7 +804,8 @@ class Studio:
                 dialog.destroy()
                 self.status.set('Sketch running. Use its progress window to pause, resume, or stop.')
         ttk.Button(actions, text='Save .gcode', command=lambda: self.save_program(dialog, program)).pack(side='left')
-        ttk.Button(actions, text='Run sketch', style='Primary.TButton', command=run).pack(side='right')
+        ttk.Button(actions, text='Run sketch', style='Primary.TButton', command=run,
+                   state='normal' if snap.get('connected') else 'disabled').pack(side='right')
 
     def save_program(self, parent: tk.Toplevel, program: str) -> None:
         file = filedialog.asksaveasfilename(parent=parent, defaultextension=".gcode",
@@ -675,10 +818,11 @@ class Studio:
             else:
                 self.status.set(f"Saved {Path(file).name}.")
 
-    def text_dialog(self, title: str, content: str) -> tuple[tk.Toplevel, ttk.Frame]:
-        dialog = tk.Toplevel(self.root)
+    def text_dialog(self, title: str, content: str, parent=None) -> tuple[tk.Toplevel, ttk.Frame]:
+        parent = self.root if parent is None else parent
+        dialog = tk.Toplevel(parent)
         dialog.title(title)
-        dialog.transient(self.root)
+        dialog.transient(parent)
         dialog.geometry("580x440")
         panel = ttk.Frame(dialog, padding=12)
         panel.pack(fill="both", expand=True)
@@ -708,6 +852,4 @@ def main(connect: str | None = None, baud: int | None = None) -> None:
             studio.port.set(connect)
             studio.baud.set(str(baud))
             root.after(100, studio.controls.connect)
-    if connect is None:
-        studio.show_board()
     root.mainloop()

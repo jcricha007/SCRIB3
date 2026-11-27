@@ -20,8 +20,8 @@ def test_generated_program_roundtrips_offline(units, dry_run, mount, actuator):
     result = review_gcode(ART, SHEET, machine, units, dry_run=dry_run)
     commands = result.program.splitlines()
     travel = next(i for i, line in enumerate(commands) if line.startswith("G0 X"))
-    assert commands[travel + 1] == "G4 P5.000"
-    assert commands.count("G4 P5.000") == 1
+    assert commands[travel + 1] == "G4 P10.000"
+    assert commands.count("G4 P10.000") == 1
     assert result.preflight.pen_up_travels == 2
     assert result.preflight.plotted_segments == 4
     assert result.preflight.command_count == len(result.program.splitlines()) - 1
@@ -29,7 +29,7 @@ def test_generated_program_roundtrips_offline(units, dry_run, mount, actuator):
 
 
 @pytest.mark.parametrize(("old", "new", "reason"), [
-    ("G4 P5.000", "G4 P0.000", "five-second"),
+    ("G4 P10.000", "G4 P0.000", "10-second"),
     ("G90", "G91", "explicit job modes"),
     ("G0 X1.000", "G0 X-1.000", "outside the configured"),
     ("G1 X3.000 Y4.000 F60.000", "G1 X3.000 Y4.000", "explicit feed"),
@@ -60,3 +60,10 @@ def test_dry_run_refuses_pen_down_command():
     altered = text[:index] + text[index:].replace("M3 S180.000", "M3 S70.000", 1)
     with pytest.raises(ValueError, match="actuator"):
         verify_program(altered, units="mm", machine=PWM, expected_strokes=2, dry_run=True)
+
+
+@pytest.mark.parametrize("tail", ["G0 X0.000 Y0.000", "$H", "G28", "M2", "M30", "M5", "M3 S70.000"])
+def test_no_command_after_final_lift_and_settle(tail):
+    program = review_gcode(ART, SHEET, PWM).program
+    with pytest.raises(ValueError, match="after the final pen lift"):
+        verify_program(program + tail + "\n", units="mm", machine=PWM, expected_strokes=2)

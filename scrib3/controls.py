@@ -194,7 +194,7 @@ class ControlPanel(ttk.Frame):
         self.perform("jog", axis=axis, distance=distance * sign, feed=rate)
 
     def pen(self, up):
-        self.perform("pen", command=(self.studio.pen_up if up else self.studio.pen_down).get(),
+        self.perform("pen", command=(self.studio.pen_up if up else self.studio.pen_down).get(), lifting=up,
                      servo=self.studio.firmware.get() == SERVO_PROFILE, settle=self.studio.settle.get())
 
     def cancel_jog(self):
@@ -285,15 +285,6 @@ class ControlPanel(ttk.Frame):
             dialog.destroy()
             self.studio.status.set("Applying controller settings…" if changes else "No settings changed.")
         ttk.Button(panel, text="Apply changed settings", command=apply).pack(anchor="e", pady=(10, 0))
-
-    def copy_travel(self):
-        values = self.session.snapshot()["settings"] if self.session else {}
-        if not {130, 131}.issubset(values):
-            self.error("Connect and read GRBL before copying controller travel.")
-            return
-        self.studio.machine_width.set(display(values[130], self.studio.unit))
-        self.studio.machine_height.set(display(values[131], self.studio.unit))
-        self.studio.status.set("Copied controller X/Y travel. Verify the usable paper area on your plotter.")
 
     def poll(self):
         while True:

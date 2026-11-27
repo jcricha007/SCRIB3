@@ -6,7 +6,7 @@ The serial worker also services realtime controls while waiting for a command
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from queue import Empty, Queue
 import re
@@ -21,6 +21,15 @@ from .jobs import PlotJob
 from .motion_profile import SMOOTH_SETTINGS
 
 JOB_IDLE_ACK_TIMEOUT = 15
+TRAVEL_READ_ERROR = "Read GRBL to load valid X and Y maximum travel from $130 and $131."
+
+
+def controller_travel(settings):
+    """GRBL reports maximum axis travel in mm, independent of its reporting units."""
+    def limit(number):
+        value = settings.get(number)
+        return value if value is not None and 0 < value <= 10_000 else None
+    return limit(130), limit(131)
 
 
 # Editable EEPROM fields; all other firmware settings remain untouched.
@@ -167,8 +176,9 @@ class Controller:
         self.reference = 0
         self.job = dict(state='idle', accepted=0, completed=0, total=0, error='')
         self.job_paused = False
+        self.job_pause_requested = False
+        self.running_servo = None
         self.job_stop = Event()
-        self.job_controls = Queue()
         self.aborted = False
         self.report = ""
         self.log = deque(maxlen=500)
@@ -224,6 +234,7 @@ class Controller:
             self.busy = True
             if kind == "run_job":
                 self.job_stop.clear()
+                self.job_pause_requested = False
             self.operation_kind = kind
             self.operation_id += 1
             self.operations.put_nowait((self.operation_id, kind, values))
@@ -233,7 +244,8 @@ class Controller:
         self.cancel_requested.set()
 
     def reset(self):
-        self.reset_requested.set()
+        with self.lock:
+            self.reset_requested.set()
 
     def invalidate_paper_origin(self):
         """An app mounting change needs a newly established paper corner."""
@@ -241,11 +253,17 @@ class Controller:
             self.origin_set = False
             self.reference += 1
 
-    def pause_job(self):
-        self.job_controls.put('pause')
+    def _set_job_pause(self, paused, operation):
+        with self.lock:
+            if (self.busy and self.operation_kind == 'run_job' and not self.job_stop.is_set()
+                    and (operation is None or operation == self.operation_id)):
+                self.job_pause_requested = paused
 
-    def resume_job(self):
-        self.job_controls.put('resume')
+    def pause_job(self, operation=None):
+        self._set_job_pause(True, operation)
+
+    def resume_job(self, operation=None):
+        self._set_job_pause(False, operation)
 
     def stop_job(self, operation):
         with self.lock:
@@ -255,7 +273,8 @@ class Controller:
                     self.job['state'] = 'stopping'
 
     def close(self):
-        self.stop.set()
+        with self.lock:
+            self.stop.set()
 
     def _write(self, data: bytes):
         if self.connection.write(data) != len(data):
@@ -275,16 +294,12 @@ class Controller:
                 self._note("Reset sent. Reconnect and re-establish position before moving.")
             raise SessionFault("Disconnected.")
         now = monotonic()
-        while True:
-            try:
-                control = self.job_controls.get_nowait()
-            except Empty:
-                break
-            with self.lock:
-                if self.job['state'] in {'running', 'paused'} and not self.job_stop.is_set():
-                    self._write(b'!' if control == 'pause' else b'~')
-                    self.job_paused = control == 'pause'
-                    self.job['state'] = 'paused' if self.job_paused else 'running'
+        with self.lock:
+            if (self.job['state'] in {'running', 'paused'} and not self.job_stop.is_set()
+                    and self.job_pause_requested != self.job_paused):
+                self._write(b'!' if self.job_pause_requested else b'~')
+                self.job_paused = self.job_pause_requested
+                self.job['state'] = 'paused' if self.job_paused else 'running'
         # GRBL cannot discard its planner without resetting the servo. For a
         # controlled stop from Pause, release only our own fully settled hold.
         if self.job_stop.is_set() and self.job_paused and self.state == 'Hold:0':
@@ -331,12 +346,17 @@ class Controller:
                             base = self.report.split("\n<", 1)[0]
                             self.report = base + "\n" + line
                 self.poll_pending = False
+                if (self.running_servo is not None and status.override is not None
+                        and status.override != self.running_servo.spindle_override):
+                    raise SessionFault('Spindle override changed during the servo run. Check pen position and restore 100% before reviewing again.')
                 if self.job['state'] in {'running', 'paused', 'stopping'} and status.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
                     raise SessionFault(f'Job stopped: controller reports {status.state}.')
                 continue
             self._note(line)
             if line.startswith("Grbl "):
                 if self.connected or self.pending:
+                    # A second reset after a genuine boot banner can move the servo again.
+                    self.aborted = line.startswith("Grbl 1.1") and line.endswith(" ['$' for help]")
                     raise SessionFault("Controller restarted. Reconnect to refresh settings and position.")
                 if not line.startswith("Grbl 1.1"):
                     raise SessionFault("These controls require GRBL 1.1.")
@@ -378,17 +398,25 @@ class Controller:
         self._wait(lambda: not self.poll_pending, 4)
 
     def _command(self, command: str, timeout: float = 5, *, idle_timeout=None, job_line=False) -> list[str]:
-        if self.stop.is_set() or self.reset_requested.is_set():
-            self._pump()
         if self.cancel_requested.is_set() and command.startswith("$J="):
             self.cancel_requested.clear()
             raise ValueError("Jog cancelled before movement.")
-        with self.lock:
-            if job_line and self.job_stop.is_set():
-                return []
-            self.log.append("> " + command)
-            self.pending, self.reply, self.lines = command, None, []
-            self._write(command.encode("ascii") + b"\n")
+        while True:
+            with self.lock:
+                if self.stop.is_set() or self.reset_requested.is_set():
+                    break
+                if job_line and self.job_stop.is_set():
+                    return []
+                if not job_line or not (self.job_pause_requested or self.job_paused):
+                    self.log.append("> " + command)
+                    self.pending, self.reply, self.lines = command, None, []
+                    self._write(command.encode("ascii") + b"\n")
+                    break
+            # A pause requested after the Idle check still gates the next write,
+            # including pen down. Service realtime controls while the gate is shut.
+            self._wait(lambda: self.job_stop.is_set() or not (self.job_pause_requested or self.job_paused), 3600)
+        if self.stop.is_set() or self.reset_requested.is_set():
+            self._pump()  # Abort before waiting for any acknowledgement.
         idle_since = None
         def acknowledged():
             nonlocal idle_since
@@ -443,15 +471,15 @@ class Controller:
         with self.lock:
             self.report = "\n".join(report)
 
-    def _actuate_pen(self, values, minimum_settle=0):
+    def _actuate_pen(self, values, minimum_settle=0, *, lifting=False):
         family, command, position = pen_command(values["command"])
         if values.get("servo"):
             if family != "PWM":
                 raise ValueError("The uploaded servo firmware uses M3 S or M5.")
-            if not {30, 31, 32}.issubset(self.settings) or self.override is None:
-                raise ValueError("Read GRBL to capture servo settings and the spindle override first.")
-            servo = ServoSettings(self.settings[30], self.settings[31], self.settings[32], self.override)
-            servo.timer_count(None if command == "M5" else position)
+            servo = ServoSettings.from_controller(self.settings, self.override, self.report)
+            count = servo.timer_count(None if command == "M5" else position)
+            if lifting:
+                servo.check_lift(count)
         settle = float(values.get("settle", 0))
         if not 0 <= settle <= 10:
             raise ValueError("Pen settle time must be between 0 and 10 seconds.")
@@ -481,7 +509,7 @@ class Controller:
             command = jog_command(values["axis"], values["distance"], values["feed"])
             if abs(float(values["distance"])) > 10 or float(values["feed"]) > 25:
                 raise ValueError("Calibration moves are limited to 10 mm at 25 mm/min.")
-            self._actuate_pen(values, minimum_settle=.5)
+            self._actuate_pen(values, minimum_settle=.5, lifting=True)
             self._fresh_status()
             if self.state != "Idle":
                 raise ValueError("Controller is not idle; calibration move cancelled.")
@@ -505,7 +533,7 @@ class Controller:
                 self.origin_set = True
                 self.reference += 1
         elif kind == "pen":
-            self._actuate_pen(values)
+            self._actuate_pen(values, lifting=values.get("lifting", False))
         elif kind == "set_home":
             with self.lock:
                 self.manual_home = None
@@ -524,7 +552,7 @@ class Controller:
             if target is None:
                 raise ValueError("Set manual home during this connection before returning to it.")
             feed = positive(values["feed"], "return feed in mm/min", 100000)
-            self._actuate_pen(values, minimum_settle=.5)
+            self._actuate_pen(values, minimum_settle=.5, lifting=True)
             self._fresh_status()
             if self.state != "Idle" or self.manual_home != target:
                 raise ValueError("Controller reference changed; manual return cancelled.")
@@ -570,20 +598,29 @@ class Controller:
         if job.settings != tuple(sorted(self.settings.items())):
             raise ValueError('Controller settings changed. Review the job again.')
         if job.machine.servo is not None:
-            live = ServoSettings(self.settings[30], self.settings[31], self.settings[32], self.override)
+            live = ServoSettings.from_controller(self.settings, self.override, self.report)
             if live != job.machine.servo:
                 raise ValueError('Servo settings or override changed. Read GRBL and review again.')
-        lines = job.commands()
+        x_travel, y_travel = controller_travel(self.settings)
+        if x_travel is None or y_travel is None:
+            raise ValueError(TRAVEL_READ_ERROR)
+        # Preflight the serialized coordinates against both the review and the controller.
+        machine = replace(job.machine, width=min(job.machine.width, x_travel),
+                          height=min(job.machine.height, y_travel))
+        lines = replace(job, machine=machine).commands()
         with self.lock:
             state = 'stopping' if self.job_stop.is_set() else 'running'
             self.job = dict(state=state, accepted=0, completed=0, total=len(lines), error='')
         self.job_paused = False
+        self.running_servo = job.machine.servo
         def wait_idle():
             self._fresh_status()
             def finished():
                 if self.state.split(':')[0] not in {'Idle', 'Run', 'Hold'}:
                     raise SessionFault(f'Job stopped: controller reports {self.state}.')
-                return self.state == 'Idle' and not self.job_paused
+                # An already stationary GRBL can acknowledge feed hold in Idle.
+                # Stop may finish there without waiting for a nonexistent Hold:0.
+                return self.state == 'Idle' and (not self.job_paused or self.job_stop.is_set())
             self._wait(finished, 3600)
         try:
             for index, line in enumerate(lines):
@@ -610,7 +647,7 @@ class Controller:
             wait_idle()
             if self.job_stop.is_set():
                 self._actuate_pen(dict(command=job.machine.up, servo=job.machine.servo is not None,
-                                       settle=job.machine.settle))
+                                       settle=job.machine.settle), lifting=True)
                 wait_idle()
                 with self.lock:
                     self.job.update(state='stopped', completed=self.job['accepted'])
@@ -624,6 +661,7 @@ class Controller:
             raise SessionFault(str(exc)) from exc
         finally:
             self.job_paused = False
+            self.running_servo = None
 
     def _apply_motion_defaults(self):
         """Initialize once per connection on the serial owner, before jogging/jobs.
