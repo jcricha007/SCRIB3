@@ -12,26 +12,11 @@ variants, tracing controls, and Mac/Windows setup. Exports include SVG, DXF, dra
 
 ## Drawing studio
 
-SCRIB3 opens to a paper-space board with selection, move/scale/rotate handles,
-A4 and Letter layouts, custom paper and bed guides, colored pen layers,
-undo/redo and editable `.scrib3` files. Existing Windows boards remain compatible.
-**Board > Machine workbench** opens GRBL setup and the local Ollama assistant;
-**Board > Add workbench artwork** brings its drawing onto the board.
+SCRIB3 opens **Machine & calibration** on the **Control** tab. Choose the Arduino port and baud, then **Connect** to jog the DIY plotter, raise or lower the pen, set manual home or paper zero, and calibrate travel. **Open drawing board** opens a second window in the same app. You can keep both windows side by side. The machine window previews the board, and closing and reopening the board preserves the drawing and the controller session.
 
-**Import** supports SVG outlines/fills/clips, photo engraving/squiggles/stippling,
-3D mesh projections and local GeoJSON maps. **Create** includes twelve Hershey
-stroke fonts, procedural patterns, QR codes, offsets and repeated arrays.
-Select all paths with Ctrl+A, then use Rotate 90 degrees and Fit to paper to
-prepare a portrait blueprint for landscape paper.
+On the board, **Import → SVG / vector / image → Keep SVG page coordinates** places separately imported SVG layers at their original positions. Use **Edit nodes** for paths and cubic curves, **Edit lettering** for SCRIB3 text, and **Save selection as element** for reusable logos. **Preview line cleanup** overlays the result at the chosen pen width. **Import → Engineering drawing sheet** builds top, front, right and isometric views from a mesh at one scale. Board files, elements and sheet templates use the `.scrib3` format.
 
-**Output** reviews a single color or registered color sequence for the current
-GRBL plotter. It also exports calibrated Bambu P1S/H2S G-code and experimental
-sliced `.gcode.3mf` files. Enter measured holder offsets and heights first.
-Pen-up mode is the default. Direct Bambu network printing and physical printer
-qualification are still pending.
-
-See the [drawing studio guide](docs/drawing-studio.md) for the tools, output
-workflow and remaining differences from 3dplotter.
+**Output** reviews a single pen or a registered sequence for the DIY plotter. **P1S setup** in the machine window guides holder calibration, previews a pen-up footprint and two-pen registration, and opens an exported sliced plate in Bambu Studio. **Output → Bambu P1S** on the board opens that same setup. The H2S exporter is also available under **Output**. [Drawing studio and printer guide](docs/drawing-studio.md)
 
 ## Run on Windows
 

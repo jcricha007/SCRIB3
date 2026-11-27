@@ -3,7 +3,7 @@
 from math import sin, cos, tau, ceil, isfinite
 import json
 import numpy as np
-from .board import Mark, DEFAULT_PEN, MAX_PATHS
+from .board import Mark, DEFAULT_PEN
 from .geometry import check_size, line_marks
 
 
@@ -69,27 +69,32 @@ def photo_paths(path, style, width=180, spacing=1, threshold=128):
 
 
 def mesh_paths(path, yaw=35, pitch=25, style="Feature edges"):
+    from scipy.spatial.transform import Rotation
+
+    if not all(isfinite(v) for v in (yaw, pitch)):
+        raise ValueError("Choose finite view angles.")
+    rotation = Rotation.from_euler("yx", [yaw, pitch], degrees=True).as_matrix()
+    return project_mesh(load_mesh(path), rotation, style)
+
+
+def load_mesh(path):
     import trimesh
 
-    if not all(isfinite(v) for v in (yaw, pitch)) or style not in (
-        "Feature edges",
-        "Visible edges",
-        "Wireframe",
-    ):
-        raise ValueError("Choose finite view angles and a listed edge style.")
     if path.stat().st_size > 50_000_000:
         raise ValueError("Model exceeds 50 MB.")
     mesh = trimesh.load(str(path), force="mesh", process=True)
-    if not isinstance(mesh, trimesh.Trimesh) or len(mesh.faces) > 60000 or len(mesh.faces) == 0:
+    if not isinstance(mesh, trimesh.Trimesh) or not 1 <= len(mesh.faces) <= 60000:
         raise ValueError("Choose a triangulated model with 1 to 60,000 faces.")
-    from scipy.spatial.transform import Rotation
+    if not np.isfinite(mesh.vertices).all():
+        raise ValueError("Model contains invalid vertices.")
+    return mesh
 
-    xyz = Rotation.from_euler("yx", [yaw, pitch], degrees=True).apply(
-        np.array(mesh.vertices, copy=True)
-    )
-    normals = Rotation.from_euler("yx", [yaw, pitch], degrees=True).apply(
-        np.array(mesh.face_normals, copy=True)
-    )
+
+def project_mesh(mesh, rotation, style, cancel=None):
+    if style not in ("Feature edges", "Visible edges", "Wireframe"):
+        raise ValueError("Choose a listed edge style.")
+    xyz = mesh.vertices @ rotation.T
+    normals = mesh.face_normals @ rotation.T
     edges = mesh.edges_unique
     if style in ("Feature edges", "Visible edges"):
         sharp = mesh.face_adjacency_edges[mesh.face_adjacency_angles > np.deg2rad(15)]
@@ -102,7 +107,7 @@ def mesh_paths(path, yaw=35, pitch=25, style="Feature edges"):
         ]
         edges = np.unique(np.sort(np.concatenate([sharp, silhouettes, boundary]), axis=1), axis=0)
     if style == "Visible edges":
-        return visible_edges(xyz, mesh.faces, edges)
+        return visible_edges(xyz, mesh.faces, edges, cancel)
     marks = tuple(
         Mark(DEFAULT_PEN, tuple((float(xyz[i, 0]), float(-xyz[i, 1])) for i in edge))
         for edge in edges
@@ -239,7 +244,7 @@ def pattern_paths(kind, detail=50, seed=1):
     return tuple(marks)
 
 
-def visible_edges(vertices, faces, edges):
+def visible_edges(vertices, faces, edges, cancel=None):
     """Remove occluded edge intervals with an orthographic triangle depth test."""
     from shapely import STRtree
     from shapely.geometry import Polygon, LineString
@@ -262,7 +267,9 @@ def visible_edges(vertices, faces, edges):
     result = []
     extent = max(np.ptp(vertices, axis=0))
     epsilon = max(1e-8, extent * 1e-7)
-    for a, b in edges:
+    for index, (a, b) in enumerate(edges):
+        if cancel and index % 32 == 0 and cancel():
+            raise ValueError("Sheet projection cancelled.")
         start, end = vertices[a], vertices[b]
         line = LineString([start[:2], end[:2]])
         if line.length < epsilon:

@@ -6,18 +6,23 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from .atomic_export import write_atomic_export
+from .board import Board
 from .printer_output import Holder, PRINTERS, plan_printer
 
 
 class PrinterWindow:
-    def __init__(self, editor, printer):
-        self.editor = editor
+    def __init__(self, studio, printer, *, parent=None, container=None):
+        self.studio = studio
         self.printer = printer
-        self.prefs = editor.studio.preset_file.with_name("holder-" + printer.lower() + ".json")
-        self.window = tk.Toplevel(editor.root)
-        self.window.title("SCRIB3 | " + printer)
-        panel = ttk.Frame(self.window, padding=12)
-        panel.pack(fill="both", expand=True)
+        self.prefs = studio.preset_file.with_name("holder-" + printer.lower() + ".json")
+        if container is None:
+            self.window = tk.Toplevel(parent or studio.root)
+            self.window.title("SCRIB3 | " + printer)
+            container = self.window
+        else:
+            self.window = container.winfo_toplevel()
+        panel = ttk.Frame(container, padding=12)
+        panel.pack(anchor="n")
         ttk.Label(panel, text="Measured pen-holder calibration", style="Title.TLabel").grid(
             row=0, columnspan=4, sticky="w"
         )
@@ -55,7 +60,8 @@ class PrinterWindow:
             ttk.Entry(panel, textvariable=v, width=10).grid(row=row, column=col + 1, pady=2)
         self.dry = tk.BooleanVar(value=True)
         self.fit = tk.BooleanVar(value=False)
-        ttk.Checkbutton(panel, text="Pen-up test", variable=self.dry).grid(
+        self.dry_button = ttk.Checkbutton(panel, text="Pen-up test", variable=self.dry)
+        self.dry_button.grid(
             row=7, columnspan=2, sticky="w"
         )
         ttk.Checkbutton(panel, text="Shrink paper to reach", variable=self.fit).grid(
@@ -72,6 +78,25 @@ class PrinterWindow:
         ttk.Button(panel, text="Export G-code / 3MF", command=self.export).grid(
             row=10, column=2, columnspan=2
         )
+
+        if printer == "P1S":
+            from .p1s_workflow import BOARD, DRY_A4, REGISTER, HolderGuide
+            self.target = tk.StringVar(value=BOARD)
+            ttk.Button(panel, text="Guided holder setup…", command=lambda: HolderGuide(self)).grid(row=11, columnspan=2, sticky="w")
+            jobs = ttk.Combobox(panel, textvariable=self.target, state="readonly", values=(BOARD, DRY_A4, REGISTER))
+            jobs.grid(row=11, column=2, columnspan=2, sticky="ew")
+            jobs.bind("<<ComboboxSelected>>", self.target_changed)
+            self.travel = tk.BooleanVar(value=False)
+            ttk.Checkbutton(panel, text="Show pen-up travel", variable=self.travel, command=self.preview).grid(row=12, columnspan=2)
+            ttk.Button(panel, text="Open in Bambu Studio…", command=lambda: self.export(open_studio=True)).grid(
+                row=12, column=2, columnspan=2)
+
+    def target_changed(self, *_):
+        from .p1s_workflow import DRY_A4
+        self.dry.set(True)
+        self.dry_button.state(["disabled"] if self.target.get() == DRY_A4 else ["!disabled"])
+        self.canvas.delete("all")
+        self.status.set("Preview the selected P1S job with the measured holder.")
 
     def holder(self):
         return Holder(self.printer, **{k: float(v.get()) for k, v in self.fields.items()})
@@ -91,9 +116,15 @@ class PrinterWindow:
     def preview(self):
         self.canvas.delete("all")
         try:
-            plan = plan_printer(
-                self.editor.board, self.holder(), fit=self.fit.get(), dry=self.dry.get()
-            )
+            editor = getattr(self.studio, "board_editor", None)
+            board, dry = editor.board if editor else Board(), self.dry.get()
+            if self.printer == "P1S":
+                from .p1s_workflow import BOARD, DRY_A4, qualification_board
+                target = self.target.get()
+                if target != BOARD:
+                    board = qualification_board(target)
+                    dry = dry or target == DRY_A4
+            plan = plan_printer(board, self.holder(), fit=self.fit.get(), dry=dry)
         except ValueError as e:
             self.status.set(str(e))
             return
@@ -113,8 +144,13 @@ class PrinterWindow:
         self.canvas.create_rectangle(
             *pt(left, front), *pt(left + plan.width, front + plan.height), fill="white"
         )
+        previous = None
         for color, paths in plan.passes:
             for path in paths:
+                if self.printer == "P1S" and self.travel.get() and previous is not None:
+                    self.canvas.create_line(*pt(*previous), *pt(path[0][0]+h.offset_x, path[0][1]+h.offset_y),
+                                            fill="#997857", dash=(3, 3))
+                previous = (path[-1][0]+h.offset_x, path[-1][1]+h.offset_y)
                 self.canvas.create_line(
                     *[v for x, y in path for v in pt(x + h.offset_x, y + h.offset_y)], fill=color
                 )
@@ -123,7 +159,7 @@ class PrinterWindow:
         )
         return plan
 
-    def export(self):
+    def export(self, open_studio=False):
         plan = self.preview()
         if plan is None:
             return
@@ -134,15 +170,34 @@ class PrinterWindow:
             parent=self.window,
         ):
             return
+        label = self.target.get().replace(" ", "-") if self.printer == "P1S" else self.printer
         target = filedialog.asksaveasfilename(
             parent=self.window,
-            initialfile=f"SCRIB3-{self.printer}.gcode.3mf",
+            initialfile=f"SCRIB3-{self.printer}-{label}.gcode.3mf" if self.printer == "P1S" else f"SCRIB3-{self.printer}.gcode.3mf",
             defaultextension=".3mf",
-            filetypes=[("Bambu sliced plate", "*.3mf"), ("G-code", "*.gcode")],
+            filetypes=[("Bambu sliced plate", "*.3mf")] if open_studio else [("Bambu sliced plate", "*.3mf"), ("G-code", "*.gcode")],
         )
         if target:
             try:
-                plan.export(Path(target))
-                self.status.set("Saved " + Path(target).name)
+                path = Path(target)
+                # The macOS save panel accepts a single extension. Studio identifies sliced
+                # plates by the whole .gcode.3mf suffix when opening the saved file.
+                if self.printer == "P1S" and path.suffix.lower() == ".3mf" and not path.name.lower().endswith(".gcode.3mf"):
+                    path = path.with_suffix(".gcode.3mf")
+                    if path.exists() and not messagebox.askyesno(
+                        "Replace sliced plate", f"Replace {path.name}?", parent=self.window
+                    ):
+                        return
+                if open_studio and not path.name.lower().endswith(".gcode.3mf"):
+                    raise ValueError("Use the .gcode.3mf extension to open a sliced plate in Bambu Studio.")
+                plan.export(path)
+                self.status.set("Saved " + path.name)
+                if open_studio:
+                    from .p1s_workflow import open_in_studio
+                    try:
+                        open_in_studio(path)
+                        self.status.set("Opened " + path.name + " in Bambu Studio.")
+                    except (ValueError, OSError) as exc:
+                        self.status.set(f"Saved {path.name}. {exc}")
             except (OSError, ValueError) as e:
                 self.status.set(str(e))

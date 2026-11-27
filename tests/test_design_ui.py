@@ -26,6 +26,7 @@ class DesignDesktopTests(TestCase):
         self.errors = []
         self.root.report_callback_exception = lambda *args: self.errors.append(str(args))
         self.app = Studio(self.root, preset_file=Path(self.folder.name) / 'prefs.json')
+        self.app.tabs.select(self.app.design_tab)
         self.windows = []
         self.root.update()
 

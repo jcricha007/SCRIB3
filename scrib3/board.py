@@ -1,11 +1,12 @@
 """Immutable, millimetre paper-space artwork with registered color passes."""
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 import json
 from math import cos, sin, radians, isfinite
 from xml.etree import ElementTree as ET
 
 from .atomic_export import write_atomic_export
+from .poster_objects import StrokeText, valid_point
 
 MAX_PATHS = 16000
 MAX_POINTS = 400000
@@ -17,6 +18,10 @@ PAPER = {"A4": (297, 210), "Letter": (279.4, 215.9), "A3": (420, 297), "A5": (21
 class Mark:
     color: str
     points: tuple
+    groups: tuple = ()
+    text: StrokeText | None = None
+    controls: tuple = ()
+    sheet_part: str | None = None
 
 
 @dataclass(frozen=True)
@@ -41,7 +46,8 @@ class Board:
             len(self.bed) != 2 or not all(isfinite(v) and v > 0 for v in self.bed)
         ):
             raise ValueError("Invalid bed dimensions.")
-        if len(self.marks) > MAX_PATHS or sum(len(m.points) for m in self.marks) > MAX_POINTS:
+        if (len(self.marks) > MAX_PATHS or sum(len(m.points) for m in self.marks) > MAX_POINTS
+                or sum(len(m.controls) for m in self.marks) > MAX_POINTS):
             raise ValueError("Reduce artwork below 16,000 paths and 400,000 points.")
         if len(self.pen_order) > MAX_PATHS or len(set(self.pen_order)) != len(self.pen_order):
             raise ValueError("Invalid pen order.")
@@ -53,14 +59,32 @@ class Board:
         )
         if any(not isinstance(c, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", c) for c in colors):
             raise ValueError("Use six-digit hexadecimal pen colors.")
+        texts = {}
         for m in self.marks:
-            if len(m.points) < 2 or any(
-                len(p) != 2
-                or any(type(v) not in (float, int) or not isfinite(v) or abs(v) > 1e7 for v in p)
-                for p in m.points
-            ):
+            if m.sheet_part not in (None, "view", "frame"):
+                raise ValueError("Invalid engineering sheet component.")
+            if len(m.points) < 2 or not all(map(valid_point, m.points)):
                 raise ValueError("Invalid path coordinates.")
+            if len(m.groups) > 64 or any(not isinstance(n, str) or not n.strip() or len(n) > 160 for n in m.groups):
+                raise ValueError("Invalid group name or nesting depth.")
+            if m.controls and (len(m.controls) < 4 or (len(m.controls)-1) % 3 or
+                               not all(map(valid_point, m.controls))):
+                raise ValueError("Invalid cubic control points.")
+            if m.text is not None:
+                prior = texts.get(m.text.key)
+                if prior is None:
+                    m.text.check()
+                    texts[m.text.key] = (m.text, m.color, m.groups, m.sheet_part)
+                elif prior != (m.text, m.color, m.groups, m.sheet_part):
+                    raise ValueError("Inconsistent lettering object.")
         return self
+
+    def text_selection(self, indices):
+        indices = {i for i in indices if self.marks[i].color not in self.hidden | self.locked}
+        keys = {self.marks[i].text.key for i in indices if self.marks[i].text}
+        if keys:
+            indices.update(i for i, m in enumerate(self.marks) if m.text and m.text.key in keys)
+        return indices
 
     def pens(self, visible=True):
         present = dict.fromkeys(m.color for m in self.marks)
@@ -95,7 +119,7 @@ class Board:
         mirror_x=False,
         mirror_y=False,
     ):
-        indices = {i for i in indices if self.marks[i].color not in self.hidden | self.locked}
+        indices = self.text_selection(indices)
         if not indices:
             raise ValueError("Select visible unlocked artwork.")
         if not all(isfinite(v) for v in (factor, angle, dx, dy)) or factor <= 0:
@@ -115,12 +139,19 @@ class Board:
             dx, dy = self.width / 2 - cx, self.height / 2 - cy
         a, b = cos(radians(angle)) * factor, sin(radians(angle)) * factor
 
+        def point(p):
+            x = (p[0] - cx) * (-1 if mirror_x else 1)
+            y = (p[1] - cy) * (-1 if mirror_y else 1)
+            return (cx + dx + a * x - b * y, cy + dy + b * x + a * y)
+
+        texts = {}
         def move(m):
-            points = []
-            for x, y in m.points:
-                x, y = (x - cx) * (-1 if mirror_x else 1), (y - cy) * (-1 if mirror_y else 1)
-                points.append((cx + dx + a * x - b * y, cy + dy + b * x + a * y))
-            return replace(m, points=tuple(points))
+            text = m.text
+            if text:
+                if text.key not in texts:
+                    texts[text.key] = replace(text, frame=tuple(map(point, text.frame)))
+                text = texts[text.key]
+            return replace(m, points=tuple(map(point, m.points)), controls=tuple(map(point, m.controls)), text=text)
 
         return replace(
             self, marks=tuple(move(m) if i in indices else m for i, m in enumerate(self.marks))
@@ -137,20 +168,40 @@ def bounds(marks):
 
 def save_board(path, board):
     board.checked()
+    paths, texts = [], {}
+    for m in board.marks:
+        row = [m.color, m.points]
+        details = {}
+        if m.groups:
+            details["groups"] = m.groups
+        if m.controls:
+            details["controls"] = m.controls
+        if m.sheet_part:
+            details["sheet_part"] = m.sheet_part
+        if m.text:
+            details["text"] = m.text.key
+            if m.text.key not in texts:
+                texts[m.text.key] = asdict(m.text)
+        if details:
+            row.append(details)
+        paths.append(row)
     data = dict(
         format="scrib3-board",
-        version=1,
+        version=2 if any(len(row) == 3 for row in paths) else 1,
         width=board.width,
         height=board.height,
         bed=board.bed,
         hidden=sorted(board.hidden),
         locked=sorted(board.locked),
         pen_order=board.pen_order,
-        paths=[[m.color, m.points] for m in board.marks],
+        paths=paths,
     )
-    write_atomic_export(
-        path, lambda p: p.write_text(json.dumps(data, allow_nan=False), encoding="utf-8")
-    )
+    if texts:
+        data["texts"] = texts
+    encoded = json.dumps(data, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > 32_000_000:
+        raise ValueError("Board exceeds 32 MB.")
+    write_atomic_export(path, lambda p: p.write_bytes(encoded))
 
 
 def load_board(path):
@@ -158,18 +209,37 @@ def load_board(path):
         if path.stat().st_size > 32_000_000:
             raise ValueError("Board exceeds 32 MB.")
         d = json.loads(path.read_text(encoding="utf-8"))
-        if d["format"] != "scrib3-board" or d["version"] != 1:
+        if d["format"] != "scrib3-board" or d["version"] not in (1, 2):
             raise ValueError("Unknown board format.")
+        texts = {}
+        for key, values in d.get("texts", {}).items():
+            obj = StrokeText(**{**values, "frame": tuple(tuple(p) for p in values["frame"])})
+            if key != obj.key:
+                raise ValueError("Invalid text object ID.")
+            obj.check()
+            texts[key] = obj
+        marks = []
+        for row in d["paths"]:
+            if len(row) not in ((2,) if d["version"] == 1 else (2, 3)):
+                raise ValueError("Invalid path record.")
+            color, points = row[:2]
+            details = row[2] if len(row) == 3 else {}
+            groups = details.get("groups", [])
+            if not isinstance(groups, list):
+                raise ValueError("Invalid path groups.")
+            text = texts[details["text"]] if "text" in details else None
+            controls = tuple(tuple(p) for p in details.get("controls", ()))
+            marks.append(Mark(color, tuple(tuple(p) for p in points), tuple(groups), text, controls, details.get("sheet_part")))
         return Board(
             d["width"],
             d["height"],
-            tuple(Mark(c, tuple(tuple(p) for p in pts)) for c, pts in d["paths"]),
+            tuple(marks),
             frozenset(d.get("hidden", [])),
             frozenset(d.get("locked", [])),
             tuple(d["bed"]) if d.get("bed") else None,
             tuple(d.get("pen_order", [])),
         ).checked()
-    except (TypeError, KeyError, IndexError, OverflowError) as e:
+    except (AttributeError, TypeError, KeyError, IndexError, OverflowError) as e:
         raise ValueError("Invalid board file.") from e
 
 
@@ -191,11 +261,27 @@ def export_svg(path, board):
             fill="none",
             attrib={"stroke-width": "0.3"},
         )
+        group.set("data-scrib3-pen", color)
+        active, parents = (), [group]
         for m in board.marks:
-            if m.color == color:
-                ET.SubElement(
-                    group, "path", d="M" + " L".join(f"{x:.6f},{y:.6f}" for x, y in m.points)
-                )
+            if m.color != color:
+                continue
+            common = 0
+            for a, b in zip(active, m.groups):
+                if a != b:
+                    break
+                common += 1
+            parents = parents[:common+1]
+            for name in m.groups[common:]:
+                parents.append(ET.SubElement(parents[-1], "g", {"data-scrib3-group": name, "aria-label": name}))
+            active = m.groups
+            if m.controls:
+                x, y = m.controls[0]
+                coords = " ".join(f"{u:.6f},{v:.6f}" for u, v in m.controls[1:])
+                d = f"M{x:.6f},{y:.6f} C{coords}"
+            else:
+                d = "M" + " L".join(f"{x:.6f},{y:.6f}" for x, y in m.points)
+            ET.SubElement(parents[-1], "path", d=d)
     write_atomic_export(
         path, lambda p: ET.ElementTree(root).write(p, encoding="utf-8", xml_declaration=True)
     )

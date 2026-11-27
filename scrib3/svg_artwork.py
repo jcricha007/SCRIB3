@@ -1,15 +1,16 @@
 """Color SVG import in physical units, including clipping and opaque occlusion."""
 
 from copy import deepcopy
+from dataclasses import replace
 from io import StringIO
 import re
 from xml.etree import ElementTree as ET
-from svgelements import SVG, Group, Shape, Path as SvgPath, Move, Close, Text, Image, Matrix
+from svgelements import SVG, Group, Shape, Path as SvgPath, Move, Close, CubicBezier, Text, Image, Matrix
 from shapely import affinity
 from shapely.geometry import Polygon, GeometryCollection, LineString
 from shapely.ops import unary_union, polygonize
 
-from .board import Mark, MAX_PATHS, MAX_POINTS
+from .board import MAX_PATHS, MAX_POINTS
 from .curves import flatten_segment
 from .svg_dashes import dash_pattern, split_dashes
 from .geometry import line_marks, fill_region, check_size
@@ -70,7 +71,7 @@ def filled_region(paths, rule):
     return unary_union(kept)
 
 
-def drawing_elements(node, clips=(), opacity=1):
+def drawing_elements(node, clips=(), opacity=1, groups=()):
     """Carry container clipping and opacity without applying child transforms twice."""
     values = node.values
     own = values.get("attributes", {})
@@ -80,10 +81,15 @@ def drawing_elements(node, clips=(), opacity=1):
     if own.get("clip-path"):
         clips = (*clips, node)
     if isinstance(node, (SVG, Group)):
+        if isinstance(node, Group) and not isinstance(node, SVG) and not own.get("data-scrib3-pen"):
+            label = (own.get("data-scrib3-group") or own.get("{http://www.inkscape.org/namespaces/inkscape}label")
+                     or own.get("inkscape:label") or own.get("aria-label") or own.get("id"))
+            if label:
+                groups = (*groups, label)
         for child in node:
-            yield from drawing_elements(child, clips, opacity)
+            yield from drawing_elements(child, clips, opacity, groups)
     else:
-        yield node, clips, opacity
+        yield node, clips, opacity, groups
 
 
 def clipping_region(owner, definitions, sx, sy):
@@ -112,7 +118,7 @@ def clipping_region(owner, definitions, sx, sy):
         else:
             inverse = ~owner.transform
             coords = []
-            for child, _, _ in drawing_elements(owner):
+            for child, _, _, _ in drawing_elements(owner):
                 if isinstance(child, Shape):
                     for part in paths_of(child):
                         for x, y in part:
@@ -150,7 +156,7 @@ def import_svg(path, *, fill="Outline", spacing=1, hide_covered=True):
     sx, sy = scales
     objects = []
     mask_cache = {}
-    for e, owners, opacity in drawing_elements(svg):
+    for e, owners, opacity, groups in drawing_elements(svg):
         values = e.values
         if values.get("visibility") in ("hidden", "collapse") or values.get("display") == "none":
             continue
@@ -221,23 +227,31 @@ def import_svg(path, *, fill="Outline", spacing=1, hide_covered=True):
             has_fill
             and opacity * float(values.get("fill-opacity", 1)) * fill_color.opacity >= 0.999
         )
-        objects.append((tuple(outline), area, fill_color.hex[:7] if has_fill else None, opaque))
+        controls = ()
+        if has_stroke and not dashes and mask is None and len(paths) == 1:
+            segments = [s for s in SvgPath(e) if not isinstance(s, Move)]
+            if segments and all(isinstance(s, CubicBezier) for s in segments):
+                handles = [segments[0].start]
+                for seg in segments:
+                    handles.extend((seg.control1, seg.control2, seg.end))
+                controls = transformed(tuple((p.x, p.y) for p in handles))
+        objects.append((outline, area, fill_color.hex[:7] if has_fill else None, opaque, groups, controls))
         if len(objects) > MAX_PATHS:
             raise ValueError("SVG exceeds shape limit.")
     covered = GeometryCollection()
     result = []
-    for outlines, area, color, opaque in reversed(objects):
+    for outlines, area, color, opaque, groups, controls in reversed(objects):
         visible = area.difference(covered) if hide_covered else area
         chunk = []
         for mark in outlines:
-            chunk.extend(
-                line_marks(LineString(mark.points).difference(covered), mark.color)
-                if hide_covered
-                else (mark,)
-            )
+            line = LineString(mark.points)
+            if hide_covered and not covered.is_empty and line.intersects(covered):
+                chunk.extend(line_marks(line.difference(covered), mark.color))
+            else:
+                chunk.append(replace(mark, controls=controls))
         if fill != "Outline" and color:
             chunk.extend(fill_region(visible, color, spacing, fill))
-        result.append(chunk)
+        result.append(tuple(replace(mark, groups=groups) for mark in chunk))
         if hide_covered and opaque:
             covered = covered.union(area)
     marks = tuple(m for chunk in reversed(result) for m in chunk)
