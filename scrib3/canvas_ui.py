@@ -9,6 +9,7 @@ from tkinter import ttk, filedialog, messagebox, colorchooser
 from xml.etree.ElementTree import ParseError
 
 from .board import Board, Mark, DEFAULT_PEN, PAPER, bounds, save_board, load_board, export_svg
+from .branding import wordmark
 from .geometry import shape, hatch, offset, array
 from .svg_artwork import import_svg
 from .lettering import FONTS, ALIGNMENTS
@@ -73,7 +74,7 @@ class CanvasEditor(ttk.Frame):
         self.bezier_points = []
         bar = ttk.Frame(self, padding=(8, 6))
         bar.pack(fill="x")
-        ttk.Label(bar, text="SCRIB3", style="Title.TLabel").pack(side="left", padx=8)
+        wordmark(bar, style="Title.TLabel", points=18, ink="#93c5fd").pack(side="left", padx=8)
         self.menu(
             bar,
             "Board",

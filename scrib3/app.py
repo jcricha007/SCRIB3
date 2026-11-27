@@ -8,6 +8,7 @@ from xml.etree.ElementTree import ParseError
 
 from . import design, presets
 from .board import MAX_PATHS, MAX_POINTS
+from .branding import wordmark
 from .assistant_ui import AssistantWindow
 from .jobs import PlotJob
 from .job_ui import JobWindow
@@ -18,6 +19,7 @@ from .artwork_import import CONVERSION_EXTENSIONS, IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner, required_travel
 from .motion_profile import START_HOLD_SECONDS
+from .startup import main as main
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .controller import TRAVEL_READ_ERROR, controller_travel
@@ -204,7 +206,7 @@ class Studio:
         frame.pack(fill="both", expand=True)
         header = ttk.Frame(frame)
         header.pack(fill="x", pady=(0, 3))
-        ttk.Label(header, text="SCRIB3", style="Brand.TLabel").pack(side="left")
+        wordmark(header, style="Brand.TLabel", points=28).pack(side="left")
         self.review_button = ttk.Button(header, text="Review board pen", style="Primary.TButton",
                                         command=lambda: self.workspace_action("review", board=False))
         self.review_button.pack(side="right", pady=1)
@@ -838,18 +840,3 @@ class Studio:
         output.configure(state="disabled")
         dialog.output = output
         return dialog, controls
-
-
-def main(connect: str | None = None, baud: int | None = None) -> None:
-    root = tk.Tk()
-    studio = Studio(root)
-    if connect is not None:
-        studio.tabs.select(studio.controls)
-        if connect == "auto" or baud is None:
-            root.after(100, lambda: studio.controls.auto_detect(
-                port=None if connect == "auto" else connect, baud=baud))
-        else:
-            studio.port.set(connect)
-            studio.baud.set(str(baud))
-            root.after(100, studio.controls.connect)
-    root.mainloop()

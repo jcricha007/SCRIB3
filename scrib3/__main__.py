@@ -25,7 +25,7 @@ def main(argv=None):
             parser.exit(1, f"{exc}\n")
         print(f"GRBL found: port={found.port} baud={found.baud}\n{found.identity}")
         return
-    from .app import main as desktop
+    from .startup import main as desktop
     desktop(connect=args.connect, baud=baud)
 
 
