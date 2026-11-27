@@ -1,5 +1,6 @@
-"""Drawing, rapid and manual jog defaults, in native GRBL units."""
+"""Plotting speeds in mm/min and the stationary hold before the first stroke."""
 
+START_HOLD_SECONDS = 10
 DRAW_FEED = 1500.0  # 25 mm/s
 TRAVEL_FEED = DRAW_FEED
 JOG_FEED = DRAW_FEED

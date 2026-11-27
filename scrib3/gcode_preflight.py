@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from math import isfinite
 import re
 
+from .motion_profile import START_HOLD_SECONDS
+
 NUMBER = r"[+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)"
 XY = re.compile(rf"(G[01]) X({NUMBER}) Y({NUMBER})(?: F({NUMBER}))?\Z")
 Z = re.compile(rf"(G[01]) Z({NUMBER})(?: F({NUMBER}))?\Z")
@@ -11,7 +13,7 @@ PWM = re.compile(rf"M3 S({NUMBER})\Z")
 DWELL = re.compile(rf"G4 P({NUMBER})\Z")
 
 
-START_DWELL = "G4 P5.000"
+START_DWELL = f"G4 P{START_HOLD_SECONDS:.3f}"
 
 
 @dataclass(frozen=True)
@@ -63,7 +65,7 @@ def verify_program(program, *, units, machine, expected_strokes, dry_run=False):
 
         if state == "first_point":
             if line != START_DWELL:
-                refuse("missing five-second pen-up hold at the first point")
+                refuse(f"missing {START_HOLD_SECONDS}-second pen-up hold at the first point")
             state = "travelled"
             continue
 
@@ -73,6 +75,9 @@ def verify_program(program, *, units, machine, expected_strokes, dry_run=False):
                 refuse("missing or mismatched pen settle dwell")
             dwell_pending = False
             continue
+
+        if state == "lifted" and travels == expected_strokes:
+            refuse("unexpected command after the final pen lift")
 
         if state in {"initial", "travelled"} or (state == "drawing" and not XY.fullmatch(line)):
             expected = machine.down if state == "travelled" and not dry_run else machine.up

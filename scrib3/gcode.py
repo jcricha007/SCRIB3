@@ -75,6 +75,7 @@ class Machine:
             down_count = self.servo.timer_count(None if down == "M5" else down_value)
             if up_count == down_count:
                 raise ValueError("The pen commands select the same servo pulse. Choose distinct positions.")
+            self.servo.check_lift(up_count)
         object.__setattr__(self, "up", up)
         object.__setattr__(self, "down", down)
 

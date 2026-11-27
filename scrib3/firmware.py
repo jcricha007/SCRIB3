@@ -11,6 +11,8 @@ SERVO_PROFILE = "Uploaded RC-servo"
 SERVO_SHORT = 7
 SERVO_LONG = 31
 SERVO_RANGE = 100
+PEN_UP_BUILD = "[VER:1.1h.20190830.SCRIB3-UP13:"
+PEN_UP_COUNT = 13
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,7 @@ class ServoSettings:
     rpm_min: float
     laser_mode: float
     spindle_override: int
+    stop_count: int = SERVO_LONG
 
     def __post_init__(self) -> None:
         if not all(isfinite(value) for value in (self.rpm_max, self.rpm_min)):
@@ -30,6 +33,13 @@ class ServoSettings:
             raise ValueError("The uploaded servo firmware requires laser mode $32=0.")
         if self.spindle_override != 100:
             raise ValueError("Set the spindle override to 100% and read GRBL again for the uploaded servo profile.")
+
+    @classmethod
+    def from_controller(cls, settings, override, report):
+        if not {30, 31, 32}.issubset(settings) or override is None:
+            raise ValueError("Read GRBL to capture servo settings and the spindle override first.")
+        stop = PEN_UP_COUNT if any(line.startswith(PEN_UP_BUILD) for line in report.splitlines()) else SERVO_LONG
+        return cls(settings[30], settings[31], settings[32], override, stop)
 
     @classmethod
     def from_report(cls, report: str) -> ServoSettings:
@@ -60,11 +70,11 @@ class ServoSettings:
             raise ValueError("Read GRBL to capture a complete $30/$31/$32 settings response.")
         if override is None:
             raise ValueError("Read GRBL again to capture the spindle override in an Ov status field.")
-        return cls(settings[30], settings[31], settings[32], override)
+        return cls.from_controller(settings, override, report)
 
     def timer_count(self, s_value: float | None) -> int:
-        if s_value is None:  # M5 calls spindle_stop(), which selects RC_SERVO_LONG.
-            return SERVO_LONG
+        if s_value is None:  # M5 and reset both call spindle_stop().
+            return self.stop_count
         if not isfinite(s_value) or s_value < 0:
             raise ValueError("Enter a finite, nonnegative servo S value.")
         # Match the supplied AVR float expression before its conversion to uint8_t.
@@ -79,12 +89,16 @@ class ServoSettings:
             )
         return floor(timer)
 
+    def check_lift(self, count):
+        if self.stop_count == PEN_UP_COUNT and count > PEN_UP_COUNT:
+            raise ValueError("This command lowers John's tagged servo below its calibrated raised position. Check Pen up on Machine.")
+
     def describe(self) -> str:
         limit = (SERVO_LONG - SERVO_SHORT) * (self.rpm_max - self.rpm_min) / SERVO_RANGE
         return (
             "Uploaded GRBL 1.1h RC-servo profile\n"
             f"$30={self.rpm_max:g}   $31={self.rpm_min:g}   $32=0   spindle override 100%\n"
-            f"M5 selects timer count {SERVO_LONG}.\n"
+            f"M5 and reset select timer count {self.stop_count}.\n"
             f"M3 S values have a nominal range of 0 to {limit:g} for this settings snapshot.\n"
             "Each export also checks the rounded S value and distinct servo pulse counts.\n"
             "Choose pen-up and pen-down positions from observed lift motion.\n"

@@ -169,7 +169,19 @@ def test_p1s_reviewed_plates_preserve_pauses_registration_and_height(tmp_path, t
     lines = data.decode().splitlines()
     assert lines.count("M400 U1") == (1 if dry else 2)
     assert ("G1 Z2.750 F600" in lines) == (not dry)
-    assert "G4 S5" in lines or "G4 P5000" in lines
+    commands = [line for line in lines if not line.startswith(";")]
+    first_xy = next(i for i, line in enumerate(commands) if line.startswith("G1 X"))
+    assert commands[first_xy + 1:first_xy + 3] == ["M400", "G4 P10000"]
+    assert commands[-2:] == ["M400", "G4 P10000"]
+    assert commands.count("G28") == 1 and commands.index("G28") < first_xy
+    if not dry:
+        last_xy = max(i for i, line in enumerate(commands) if line.startswith("G1 X"))
+        assert commands[last_xy + 1:] == ["M400", "G1 Z5.500 F600", "M400", "G4 P10000"]
+        for i, cmd in enumerate(commands):
+            if cmd == "G1 Z2.750 F600":
+                transition = i - 1 if commands[i - 1] == "G4 P10000" else i
+                assert commands[transition - 1] == "M400" and commands[transition - 2].startswith("G1 X")
+                assert commands[i + 1] == "M400" and commands[i + 2].startswith("G1 X")
     if target == REGISTER:
         assert plan.scale == 1
         # Diamond and cross from different passes share their measured center.

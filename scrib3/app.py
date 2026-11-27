@@ -17,6 +17,7 @@ from .import_ui import ImportWindow
 from .artwork_import import CONVERSION_EXTENSIONS, IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner, required_travel
+from .motion_profile import START_HOLD_SECONDS
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .controller import TRAVEL_READ_ERROR, controller_travel
@@ -770,7 +771,8 @@ class Studio:
                         command=update_preview).pack(anchor='w')
         corner = origin_corner(machine.paper_mount)
         direction = '+Y right, -X down' if machine.paper_mount == 'top_left_y' else '+X right, +Y up'
-        ttk.Label(controls, text=f'Paper XY zero: {corner} corner; {direction}. First point hold: 5 seconds. Minimum pen settle: 0.5 seconds. '
+        ttk.Label(controls, text=f'Paper zero at the {corner} corner ({direction}). The pen waits {START_HOLD_SECONDS} seconds at the first '
+                  'point, then finishes raised at the last point. Minimum pen settle is 0.5 seconds. '
                   f'Closed-loop overlap: {display(machine.seam_overlap, self.unit)} {self.unit}.',
                   wraplength=630, style='Muted.TLabel').pack(anchor='w', pady=4)
         actions = ttk.Frame(controls)

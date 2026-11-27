@@ -33,7 +33,7 @@ class FirmwareTests(TestCase):
                           ServoSettings.from_report(REPORT))
         lines = generate_gcode((((5, 5), (15, 5)),), Sheet(20, 20, 0), machine).splitlines()
         self.assertEqual(lines[2:], [
-            "M5", "G4 P0.200", "G0 X5.000 Y5.000", "G4 P5.000",
+            "M5", "G4 P0.200", "G0 X5.000 Y5.000", "G4 P10.000",
             "M3 S100.000", "G4 P0.200", "G1 X15.000 Y5.000 F300.000",
             "M5", "G4 P0.200",
         ])
@@ -52,6 +52,18 @@ class FirmwareTests(TestCase):
                 ServoSettings.from_report(report)
         interleaved = REPORT.replace("$31=0.000", "<Idle|MPos:0,0,0>\n$31=0.000")
         self.assertEqual(ServoSettings.from_report(interleaved).rpm_max, 1000)
+
+    def test_tagged_pen_up_firmware_and_original_have_distinct_reset_behavior(self):
+        original = ServoSettings.from_report(REPORT)
+        parked = ServoSettings.from_report(REPORT.replace("20190830:", "20190830.SCRIB3-UP13:"))
+        self.assertEqual(original.timer_count(None), 31)
+        self.assertEqual(parked.timer_count(None), parked.timer_count(180))
+        self.assertEqual(parked.timer_count(None), 13)
+        self.assertEqual(parked.timer_count(70), original.timer_count(70))
+        with self.assertRaisesRegex(ValueError, "same servo pulse"):
+            Machine(100, 100, 300, "M3 S180", "M5", servo=parked)
+        with self.assertRaisesRegex(ValueError, "raises|lowers"):
+            Machine(100, 100, 300, "M3 S70", "M3 S180", servo=parked)
 
     def test_missing_intermittent_override_is_polled_without_writing_settings(self):
         with patch.object(grbl.serial, "Serial") as serial, patch.object(grbl, "sleep"):

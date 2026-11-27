@@ -71,8 +71,9 @@ class PrinterTests(unittest.TestCase):
                         identifier,
                     )
                     self.assertEqual(g.count(b"M400 U1"), 2)
-                    self.assertEqual(g.count(b"G4 P5000"), 1)
-                    self.assertLess(g.index(b"G4 P5000"), g.index(b"G1 Z1.250"))
+                    hold = b"G4 P10000" if printer == "P1S" else b"G4 P5000"
+                    self.assertEqual(g.count(hold), 2 if printer == "P1S" else 1)
+                    self.assertLess(g.index(hold), g.index(b"G1 Z1.250"))
                     self.assertIn(b"G1 Z5.000", g[g.rindex(b"G1 X") :])
                     for l in g.splitlines():
                         if not l.startswith(b";"):

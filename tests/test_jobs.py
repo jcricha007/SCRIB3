@@ -175,14 +175,14 @@ class JobProtocolTests(TestCase):
         original = self.peer.write
 
         def hold_start(data):
-            if data == b'G4 P5.000\n':
+            if data == b'G4 P10.000\n':
                 self.peer.writes.append(data)
                 return len(data)
             return original(data)
 
         self.peer.write = hold_start
         operation = self.controller.request('run_job', job=self.job())
-        eventually(lambda: b'G4 P5.000\n' in self.peer.writes)
+        eventually(lambda: b'G4 P10.000\n' in self.peer.writes)
         self.controller.stop_job(operation)
         self.peer.emit('ok')
         eventually(lambda: not self.controller.snapshot()['busy'])
@@ -198,6 +198,94 @@ class JobProtocolTests(TestCase):
         self.controller.request('run_job', job=self.job())
         eventually(lambda: not self.controller.snapshot()['busy'])
         self.assertEqual(self.controller.snapshot()['job']['state'], 'completed')
+
+    def test_first_point_arrival_and_dwell_ack_precede_ink_and_final_lift_stays_put(self):
+        self.peer.block_moves = False
+        job = self.job()
+        first_xy = next(cmd.encode() + b'\n' for cmd in job.commands() if cmd.startswith('G0 X'))
+        dwell = b'G4 P10.000\n'
+        original = self.peer.write
+
+        def stage_start(data):
+            if data == first_xy:
+                self.peer.state = 'Run'
+            if data == dwell:
+                self.peer.writes.append(data)
+                return len(data)
+            return original(data)
+
+        self.peer.write = stage_start
+        self.controller.request('run_job', job=job)
+        eventually(lambda: first_xy in self.peer.writes)
+        sleep(.3)
+        self.assertIn(b'M3 S180.000\n', self.peer.writes)
+        self.assertNotIn(dwell, self.peer.writes)
+        self.peer.state = 'Idle'
+        eventually(lambda: dwell in self.peer.writes)
+        self.assertNotIn(b'M3 S70.000\n', self.peer.writes)
+        self.assertFalse(self.peer.normal_moves)
+        self.peer.emit('ok')
+        eventually(lambda: not self.controller.snapshot()['busy'])
+        actual = [w.decode().strip() for w in self.peer.writes[self.peer.writes.index(first_xy):] if w != b'?']
+        self.assertEqual(actual, list(job.commands())[job.commands().index(first_xy.decode().strip()):])
+        self.assertEqual(actual[-3:], ['G1 X6.000 Y2.000 F60.000', 'M3 S180.000', 'G4 P0.500'])
+        self.assertEqual(self.controller.snapshot()['state'], 'Idle')
+
+    def test_pause_at_pen_down_write_waits_for_this_jobs_resume(self):
+        self.peer.block_moves = False
+        original = self.controller._command
+        paused = False
+
+        def pause_at_write(command, *args, **kwargs):
+            nonlocal paused
+            if command == 'M3 S70.000' and not paused:
+                paused = True
+                self.controller.pause_job(self.controller.operation_id)
+            return original(command, *args, **kwargs)
+
+        with patch.object(self.controller, '_command', side_effect=pause_at_write):
+            operation = self.controller.request('run_job', job=self.job())
+            eventually(lambda: self.controller.snapshot()['job']['state'] == 'paused')
+            self.controller.resume_job(operation - 1)
+            sleep(.1)
+            self.assertNotIn(b'M3 S70.000\n', self.peer.writes)
+            self.assertNotIn(b'~', self.peer.writes)
+            self.controller.resume_job(operation)
+            eventually(lambda: not self.controller.snapshot()['busy'])
+            self.assertEqual(self.controller.snapshot()['job']['state'], 'completed')
+
+    def test_override_change_during_first_hold_aborts_before_lowering(self):
+        original = self.peer.write
+        def change_override(data):
+            if data == b'G4 P10.000\n':
+                self.peer.override = 50
+                self.peer.writes.append(data)
+                return len(data)
+            return original(data)
+        self.peer.write = change_override
+        self.controller.request('run_job', job=self.job())
+        eventually(lambda: not self.controller.thread.is_alive())
+        self.assertIn('override changed', self.controller.snapshot()['fault'])
+        self.assertNotIn(b'M3 S70.000\n', self.peer.writes)
+
+    def test_stop_while_paused_at_stationary_first_point_never_lowers(self):
+        original = self.peer.write
+        def idle_dwell(data):
+            if data in (b'G4 P10.000\n', b'!'):
+                self.peer.writes.append(data)
+                return len(data)
+            return original(data)
+        self.peer.write = idle_dwell
+        operation = self.controller.request('run_job', job=self.job())
+        eventually(lambda: b'G4 P10.000\n' in self.peer.writes)
+        self.controller.pause_job(operation)
+        eventually(lambda: self.controller.snapshot()['job']['state'] == 'paused')
+        self.controller.stop_job(operation)
+        self.peer.emit('ok')
+        eventually(lambda: not self.controller.snapshot()['busy'])
+        self.assertEqual(self.controller.snapshot()['job']['state'], 'stopped')
+        self.assertNotIn(b'M3 S70.000\n', self.peer.writes)
+        self.assertNotIn(b'~', self.peer.writes)
 
     def test_stop_while_paused_with_an_unacknowledged_move(self):
         self.peer.block_ack_at = 2

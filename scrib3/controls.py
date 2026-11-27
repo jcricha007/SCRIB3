@@ -194,7 +194,7 @@ class ControlPanel(ttk.Frame):
         self.perform("jog", axis=axis, distance=distance * sign, feed=rate)
 
     def pen(self, up):
-        self.perform("pen", command=(self.studio.pen_up if up else self.studio.pen_down).get(),
+        self.perform("pen", command=(self.studio.pen_up if up else self.studio.pen_down).get(), lifting=up,
                      servo=self.studio.firmware.get() == SERVO_PROFILE, settle=self.studio.settle.get())
 
     def cancel_jog(self):

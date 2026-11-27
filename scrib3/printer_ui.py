@@ -7,7 +7,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from .atomic_export import write_atomic_export
 from .board import Board
-from .printer_output import Holder, PRINTERS, plan_printer
+from .motion_profile import START_HOLD_SECONDS
+from .printer_output import Holder, P1S_FINISH_HOLD_SECONDS, PRINTERS, plan_printer
 
 
 class PrinterWindow:
@@ -163,10 +164,14 @@ class PrinterWindow:
         plan = self.preview()
         if plan is None:
             return
+        instructions = ("Home with the pen and any obstructing attachment removed. Install the calibrated "
+                        "holder and pen at the setup pause.")
+        if self.printer == "P1S":
+            instructions += (f" After arrival, the pen waits {START_HOLD_SECONDS} seconds above the first point. "
+                             f"The file finishes with a {P1S_FINISH_HOLD_SECONDS}-second raised hold at the last point.")
         if not messagebox.askokcancel(
             "Review printer job",
-            self.status.get()
-            + "\n\nHome with pen and any obstructing attachment removed. Install the calibrated holder and pen at the first pause. Review the exported plate in Bambu Studio.",
+            self.status.get() + "\n\n" + instructions + " Review the exported plate in Bambu Studio.",
             parent=self.window,
         ):
             return
