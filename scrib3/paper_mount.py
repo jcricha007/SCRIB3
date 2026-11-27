@@ -1,4 +1,5 @@
 """Map upright artwork to the operator's physical paper mounting."""
+from math import isclose
 
 MOUNTS = {
     'top_left_y': 'Top-left home: +Y right, -X down',
@@ -15,6 +16,13 @@ def validate_mount(mount):
 def required_travel(width, height, mount):
     validate_mount(mount)
     return (height, width) if mount == 'top_left_y' else (width, height)
+
+
+def exceeds_travel(required, limits):
+    # Allow for conversion through the ten-digit inch display. G-code checks
+    # the actual serialized coordinates against the unrounded controller limits.
+    return any(limit is not None and size > limit and not isclose(size, limit, rel_tol=1e-9)
+               for size, limit in zip(required, limits))
 
 
 def machine_point(x, y, paper_height, mount):

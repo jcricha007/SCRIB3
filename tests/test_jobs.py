@@ -243,6 +243,18 @@ class JobProtocolTests(TestCase):
         self.assertIn('settings changed', self.controller.snapshot()['last_result'][2])
         self.assertFalse(self.peer.normal_moves)
 
+    def test_live_travel_must_cover_the_reviewed_job_before_any_motion(self):
+        for x_limit, error in ((0, '$130 and $131'), (5, 'paper does not fit')):
+            with self.subTest(x_limit=x_limit):
+                self.peer.settings[130] = x_limit
+                self.controller.request('refresh')
+                eventually(lambda: not self.controller.snapshot()['busy'])
+                before = len(self.peer.writes)
+                self.controller.request('run_job', job=self.job())
+                eventually(lambda: not self.controller.snapshot()['busy'])
+                self.assertIn(error, self.controller.snapshot()['last_result'][2])
+                self.assertTrue(all(w == b'?' for w in self.peer.writes[before:]))
+
     def test_inch_dry_run_never_lowers_pen(self):
         self.peer.block_moves = False
         job = self.job(dry=True, units='in')

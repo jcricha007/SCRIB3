@@ -16,9 +16,10 @@ from .quality_ui import QualityWindow
 from .import_ui import ImportWindow
 from .artwork_import import CONVERSION_EXTENSIONS, IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
-from .paper_mount import origin_corner
+from .paper_mount import origin_corner, required_travel
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
+from .controller import TRAVEL_READ_ERROR, controller_travel
 from .demo import sample
 from .drawing import Drawing, Sheet, fit_to_sheet
 from .gcode import Machine, write_program
@@ -76,8 +77,7 @@ class Studio:
         self.metric_travel = tk.StringVar()
         self.quality_summary = tk.StringVar()
         self.model = tk.StringVar(value=data["ollama_model"])
-        self.machine_width = tk.StringVar(value="" if data["machine_width_mm"] is None else display(data["machine_width_mm"], self.unit))
-        self.machine_height = tk.StringVar(value="" if data["machine_height_mm"] is None else display(data["machine_height_mm"], self.unit))
+        self.saved_travel = (data["machine_width_mm"], data["machine_height_mm"])
         self.feed = tk.StringVar(value="" if data["feed_mm_min"] is None else display(data["feed_mm_min"], self.unit))
         self.pen_up = tk.StringVar(value=data["pen_up"])
         self.pen_down = tk.StringVar(value=data["pen_down"])
@@ -385,29 +385,24 @@ class Studio:
         panel = settings_panel
         ttk.Label(panel, text="Plotter settings", style="Title.TLabel").grid(row=0, columnspan=2, sticky="w")
         for row, (label, variable) in enumerate((
-            ("Usable X travel ({unit})", self.machine_width),
-            ("Usable Y travel ({unit})", self.machine_height),
             ("Draw feed ({unit}/min)", self.feed),
             ("Pen up command", self.pen_up),
             ("Pen down command", self.pen_down),
-            ("Pen settle (sec)", self.settle),
+            ("Pen settle (seconds)", self.settle),
         ), start=1):
             self.field(panel, row, label, variable)
-        ttk.Label(panel, text="Z pen commands use mm; servo S values are unitless.",
-                  style="Muted.TLabel", wraplength=320).grid(row=7, columnspan=2, sticky="w", pady=(6, 0))
-        motion_actions = ttk.Frame(panel)
-        motion_actions.grid(row=8, columnspan=2, sticky='ew', pady=(3, 2))
-        ttk.Button(motion_actions, text="Use controller travel", padding=(5, 6),
-                   command=lambda: self.controls.copy_travel()).pack(side='left', fill='x', expand=True)
-        self.motion_defaults_button = ttk.Button(motion_actions, text='Smooth motion', padding=(5, 6),
+        ttk.Label(panel, text="Pen settle pauses after each lift or drop. Sketches use at least 0.5 seconds.\n"
+                              "Z commands use mm. Servo S values are unitless.",
+                  style="Muted.TLabel", wraplength=320).grid(row=5, columnspan=2, sticky="w", pady=(6, 0))
+        self.motion_defaults_button = ttk.Button(panel, text='Smooth motion', padding=(5, 6),
                                                 command=lambda: MotionDefaultsWindow(self))
-        self.motion_defaults_button.pack(side='right', fill='x', expand=True, padx=(5, 0))
-        ttk.Separator(panel).grid(row=9, columnspan=2, sticky="ew", pady=6)
-        self.field(panel, 10, "Preset name", self.preset_name)
-        ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=11, column=0, sticky="ew", pady=4)
-        ttk.Button(panel, text="Restore John's", command=self.restore_preset).grid(row=11, column=1, sticky="ew", pady=4)
+        self.motion_defaults_button.grid(row=6, columnspan=2, sticky="ew", pady=(3, 2))
+        ttk.Separator(panel).grid(row=7, columnspan=2, sticky="ew", pady=6)
+        self.field(panel, 8, "Preset name", self.preset_name)
+        ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=9, column=0, sticky="ew", pady=4)
+        ttk.Button(panel, text="Restore John's", command=self.restore_preset).grid(row=9, column=1, sticky="ew", pady=4)
         ttk.Label(panel, text="Saved presets reload when SCRIB3 opens.\nFirmware startup/reset still uses the M5 position.",
-                  style="Muted.TLabel", wraplength=320).grid(row=12, columnspan=2, sticky="w", pady=(4, 0))
+                  style="Muted.TLabel", wraplength=320).grid(row=10, columnspan=2, sticky="w", pady=(4, 0))
 
     def field(self, panel: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
         widget = ttk.Label(panel, text=label.format(unit=self.unit))
@@ -418,10 +413,18 @@ class Studio:
 
     def dimension_fields(self):
         return {"paper_width_mm": self.paper_width, "paper_height_mm": self.paper_height,
-                "margin_mm": self.margin, "machine_width_mm": self.machine_width,
-                "machine_height_mm": self.machine_height, "feed_mm_min": self.feed,
+                "margin_mm": self.margin, "feed_mm_min": self.feed,
                 "jog_step_mm": self.controls.step, "jog_feed_mm_min": self.controls.rate,
                 "seam_overlap_mm": self.seam_overlap}
+
+    def travel_limits(self, snapshot=None):
+        """Use the connected plotter’s travel limits in mm, or the saved limits offline."""
+        if snapshot is None:
+            session = self.controls.session
+            snapshot = session.snapshot() if session else {}
+        if snapshot.get("connected"):
+            return controller_travel(snapshot["settings"])
+        return self.saved_travel
 
     def update_unit_labels(self):
         for label, template in self.unit_labels:
@@ -452,7 +455,11 @@ class Studio:
         try:
             values = {name: (to_mm(variable.get(), self.unit) if variable.get().strip() else None)
                       for name, variable in self.dimension_fields().items()}
+            x_travel, y_travel = self.travel_limits()
+            if x_travel is None or y_travel is None:
+                x_travel, y_travel = self.saved_travel
             values.update(schema_version=8, name=self.preset_name.get(), units=self.unit,
+                          machine_width_mm=x_travel, machine_height_mm=y_travel,
                           quality_mode=self.quality_mode.get(), remove_duplicates=self.remove_duplicates.get(),
                           join_strokes=self.join_strokes.get(), reloop=self.reloop.get(),
                           auto_motion_defaults=self.auto_motion_defaults.get(),
@@ -465,11 +472,13 @@ class Studio:
             messagebox.showerror("Save preset", str(exc), parent=self.root)
             return False
         else:
+            self.saved_travel = (x_travel, y_travel)
             self.status.set(f"Saved {values['name']}. These settings will reload next time.")
             return True
 
     def restore_preset(self):
         data = presets.builtin()
+        self.saved_travel = (data["machine_width_mm"], data["machine_height_mm"])
         self.calibration = {100: data["x_steps_per_mm"], 101: data["y_steps_per_mm"]}
         self.unit = data["units"]
         self.unit_choice.set(UNIT_NAMES[self.unit])
@@ -695,10 +704,12 @@ class Studio:
 
     def review(self, board_editor=None, on_complete=None, initial_dry=True) -> None:
         parent = board_editor.root if board_editor is not None else self.root
+        session = self.controls.session
+        snap = session.snapshot() if session else {}
         try:
-            if self.controls.session and self.controls.session.snapshot()["reset_required"]:
+            if snap.get("reset_required"):
                 raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
-            if self.controls.session and self.controls.session.snapshot().get('motion_defaults_pending'):
+            if snap.get('motion_defaults_pending'):
                 raise ValueError('Wait for automatic motion setup to finish before reviewing a job.')
             if board_editor is None:
                 self.refresh()
@@ -714,14 +725,16 @@ class Studio:
                 if self.controller_report is None or self.controller_report[:2] != (self.port.get(), int(self.baud.get())):
                     raise ValueError("Read GRBL on the selected port to check the uploaded servo profile.")
                 servo = ServoSettings.from_report(self.controller_report[2])
+            x_travel, y_travel = self.travel_limits(snap)
+            if snap.get("connected") and (x_travel is None or y_travel is None):
+                raise ValueError(TRAVEL_READ_ERROR)
+            paper_x, paper_y = required_travel(sheet.width, sheet.height, self.paper_mount.get())
             machine = Machine(
-                to_mm(self.machine_width.get(), self.unit), to_mm(self.machine_height.get(), self.unit),
+                x_travel if x_travel is not None else paper_x, y_travel if y_travel is not None else paper_y,
                 to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
                 servo=servo, paper_mount=self.paper_mount.get(), seam_overlap=to_mm(self.seam_overlap.get(), self.unit),
             )
             machine = replace(machine, settle=max(.5, machine.settle))
-            session = self.controls.session
-            snap = session.snapshot() if session else {}
             job = PlotJob(drawing, sheet, machine, self.unit, initial_dry,
                           tuple(sorted(snap.get('settings', {}).items())), snap.get('reference', -1))
             review = job.review()
@@ -729,12 +742,17 @@ class Studio:
         except ValueError as exc:
             error = str(exc)
             if "could not convert string to float" in error:
-                error = "Enter the plotter’s X/Y travel, draw feed, and verified pen commands on the Machine tab."
+                error = "Enter a numeric drawing feed and pen settle time on the Machine tab."
             messagebox.showerror("Review G-code", error, parent=parent)
             return
         def preview(review):
             lines = review.program.splitlines()
-            return (review.summary() + "\n\n" + "\n".join(lines[:400]) +
+            travel_note = ""
+            if not snap.get("connected"):
+                travel_note = ("Offline review uses saved travel limits." if None not in (x_travel, y_travel)
+                               else "Offline review uses paper bounds for axes without a saved travel limit.")
+                travel_note += " Connect and review again to run.\n\n"
+            return (travel_note + review.summary() + "\n\n" + "\n".join(lines[:400]) +
                     (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else ''))
         dialog, controls = self.text_dialog("G-code review / Run sketch", preview(review), parent=parent)
         dialog.geometry('680x540')
@@ -784,7 +802,8 @@ class Studio:
                 dialog.destroy()
                 self.status.set('Sketch running. Use its progress window to pause, resume, or stop.')
         ttk.Button(actions, text='Save .gcode', command=lambda: self.save_program(dialog, program)).pack(side='left')
-        ttk.Button(actions, text='Run sketch', style='Primary.TButton', command=run).pack(side='right')
+        ttk.Button(actions, text='Run sketch', style='Primary.TButton', command=run,
+                   state='normal' if snap.get('connected') else 'disabled').pack(side='right')
 
     def save_program(self, parent: tk.Toplevel, program: str) -> None:
         file = filedialog.asksaveasfilename(parent=parent, defaultextension=".gcode",

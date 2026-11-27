@@ -286,15 +286,6 @@ class ControlPanel(ttk.Frame):
             self.studio.status.set("Applying controller settings…" if changes else "No settings changed.")
         ttk.Button(panel, text="Apply changed settings", command=apply).pack(anchor="e", pady=(10, 0))
 
-    def copy_travel(self):
-        values = self.session.snapshot()["settings"] if self.session else {}
-        if not {130, 131}.issubset(values):
-            self.error("Connect and read GRBL before copying controller travel.")
-            return
-        self.studio.machine_width.set(display(values[130], self.studio.unit))
-        self.studio.machine_height.set(display(values[131], self.studio.unit))
-        self.studio.status.set("Copied controller X/Y travel. Verify the usable paper area on your plotter.")
-
     def poll(self):
         while True:
             try:

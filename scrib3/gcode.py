@@ -10,7 +10,7 @@ from .drawing import Drawing, Sheet
 from .firmware import ServoSettings
 from .units import factor
 from .gcode_preflight import START_DWELL, ProgramPreflight, verify_program
-from .paper_mount import machine_point, required_travel, validate_mount
+from .paper_mount import exceeds_travel, machine_point, required_travel, validate_mount
 
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
 Z_COMMAND = re.compile(rf"(G[01])[ \t]*Z({NUMBER})(?:[ \t]*F({NUMBER}))?", re.ASCII)
@@ -57,7 +57,7 @@ class Machine:
     def __post_init__(self) -> None:
         validate_mount(self.paper_mount)
         if not all(0 < value <= 10_000 for value in (self.width, self.height)):
-            raise ValueError("Enter the plotter's positive usable X and Y travel in mm.")
+            raise ValueError("Plotter travel must be greater than zero and at most 10,000 mm on each axis.")
         if not 0.001 <= self.feed <= 100_000:
             raise ValueError("Enter a positive drawing feed rate in mm/min.")
         if not 0 <= self.settle <= 10:
@@ -121,8 +121,10 @@ def review_gcode(drawing: Drawing, sheet: Sheet, machine: Machine, units: str = 
     if not drawing:
         raise ValueError("Create or import a drawing first.")
     x_travel, y_travel = required_travel(sheet.width, sheet.height, machine.paper_mount)
-    if x_travel > machine.width or y_travel > machine.height:
-        raise ValueError("The paper does not fit the configured usable X/Y travel.")
+    if exceeds_travel((x_travel, y_travel), (machine.width, machine.height)):
+        raise ValueError(f"The paper does not fit the configured travel. This mounting needs "
+                         f"X {x_travel/scale:g} and Y {y_travel/scale:g} {units}. "
+                         f"Available travel is X {machine.width/scale:g} and Y {machine.height/scale:g} {units}.")
     lines = ["(SCRIB3 pen-up test)" if dry_run else "(SCRIB3 pen plotter job)", f"{'G20' if units == 'in' else 'G21'} G90 G94 G17 G54 G49"]
 
     def actuate(command: str) -> None:

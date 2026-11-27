@@ -182,8 +182,10 @@ class DesktopTests(TestCase):
             panel.buttons['Pen up'].invoke()
             wait(lambda: not panel.session.snapshot()['busy'])
             assert b'M3 S180.000\n' in peer.writes and b'M3 S70.000\n' in peer.writes
-            panel.copy_travel()
-            assert studio.machine_width.get() == '200'
+            machine_labels = {str(w.cget('text')) for w in descendants(studio.motion_defaults_button.master)
+                              if w.winfo_class() in ('TLabel', 'TButton')}
+            assert not any(label.startswith(('Usable X', 'Usable Y', 'Use controller travel')) for label in machine_labels)
+            assert studio.travel_limits() == (200, 200)
             panel.buttons['Read GRBL'].invoke()
             wait(lambda: not panel.session.snapshot()['busy'])
             for w in root.winfo_children():
@@ -202,7 +204,8 @@ class DesktopTests(TestCase):
             studio.save_preset()
             saved = presets.read(preset_file)
             assert saved['units'] == 'in' and saved['pen_down'] == 'M3 S70'
-            assert abs(saved['machine_width_mm'] - 200) < .00001
+            assert (saved['machine_width_mm'], saved['machine_height_mm']) == (200, 200)
+            assert not any(w.startswith((b'$130=', b'$131=')) for w in peer.writes)
             layout_fits(panel)
 
             assert not errors, errors
@@ -219,5 +222,5 @@ class DesktopTests(TestCase):
             assert self.panel.session is None
             assert not studio.auto_motion_defaults.get()
             assert abs(float(studio.feed.get()) - 4) < .00001
-            assert abs(to_mm(studio.machine_width.get(), studio.unit) - 200) < .00001
+            assert studio.travel_limits() == (200, 200)
             destroy_root()

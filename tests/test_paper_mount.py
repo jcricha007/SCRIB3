@@ -5,6 +5,7 @@ from scrib3 import presets
 from scrib3.drawing import Sheet
 from scrib3.gcode import Machine, generate_gcode
 from scrib3.paper_mount import machine_point, required_travel
+from scrib3.units import display, to_mm
 
 
 class PaperMountTests(TestCase):
@@ -38,6 +39,15 @@ class PaperMountTests(TestCase):
         with self.assertRaisesRegex(ValueError, 'rounded plotting point'):
             generate_gcode((((0, 0), (1, 1)),), Sheet(2, 1.0002, 0),
                            replace(machine, width=1.0002, height=2), 'in')
+
+    def test_exact_a4_controller_limits_with_inch_display(self):
+        width, height = (to_mm(display(mm, 'in'), 'in') for mm in (297, 210))
+        sheet = Sheet(width, height, 5)
+        machine = Machine(210, 297, 300, 'M3 S180', 'M3 S70', paper_mount='top_left_y')
+        drawing = (((5, 5), (100, 100)),)
+        self.assertIn('G20 G90', generate_gcode(drawing, sheet, machine, 'in'))
+        with self.assertRaisesRegex(ValueError, 'paper does not fit'):
+            generate_gcode(drawing, sheet, replace(machine, height=296.999), 'in')
 
     def test_existing_saved_mount_is_preserved_until_explicitly_changed(self):
         legacy = {key: value for key, value in presets.builtin().items() if key in presets.V2_FIELDS}

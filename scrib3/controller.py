@@ -6,7 +6,7 @@ The serial worker also services realtime controls while waiting for a command
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from queue import Empty, Queue
 import re
@@ -21,6 +21,15 @@ from .jobs import PlotJob
 from .motion_profile import SMOOTH_SETTINGS
 
 JOB_IDLE_ACK_TIMEOUT = 15
+TRAVEL_READ_ERROR = "Read GRBL to load valid X and Y maximum travel from $130 and $131."
+
+
+def controller_travel(settings):
+    """GRBL reports maximum axis travel in mm, independent of its reporting units."""
+    def limit(number):
+        value = settings.get(number)
+        return value if value is not None and 0 < value <= 10_000 else None
+    return limit(130), limit(131)
 
 
 # Editable EEPROM fields; all other firmware settings remain untouched.
@@ -573,7 +582,13 @@ class Controller:
             live = ServoSettings(self.settings[30], self.settings[31], self.settings[32], self.override)
             if live != job.machine.servo:
                 raise ValueError('Servo settings or override changed. Read GRBL and review again.')
-        lines = job.commands()
+        x_travel, y_travel = controller_travel(self.settings)
+        if x_travel is None or y_travel is None:
+            raise ValueError(TRAVEL_READ_ERROR)
+        # Preflight the serialized coordinates against both the review and the controller.
+        machine = replace(job.machine, width=min(job.machine.width, x_travel),
+                          height=min(job.machine.height, y_travel))
+        lines = replace(job, machine=machine).commands()
         with self.lock:
             state = 'stopping' if self.job_stop.is_set() else 'running'
             self.job = dict(state=state, accepted=0, completed=0, total=len(lines), error='')

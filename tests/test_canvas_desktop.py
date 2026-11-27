@@ -119,8 +119,6 @@ class CanvasDesktopTests(TestCase):
                 e.commit(replace(e.board, marks=(Mark("#522d80", ((10, 10), (20, 20))),)))
                 e.pen.set("#522d80")
                 s.firmware.set("Manual commands")
-                s.machine_width.set("20")
-                s.machine_height.set("20")
                 with patch("scrib3.app.PlotJob", side_effect=ValueError("captured")) as job, patch(
                     "tkinter.messagebox.showerror"
                 ):
