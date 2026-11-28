@@ -743,10 +743,14 @@ class Studio:
                                          self.join_strokes.get(), self.reloop.get())
                 drawing, _ = prepare_toolpath(drawing, options, start, max_strokes=MAX_PATHS, max_points=MAX_POINTS)
             servo = None
+            preview_only = False
             if self.firmware.get() == SERVO_PROFILE:
-                if self.controller_report is None or self.controller_report[:2] != (self.port.get(), int(self.baud.get())):
+                if self.controller_report is not None and self.controller_report[:2] == (self.port.get(), int(self.baud.get())):
+                    servo = ServoSettings.from_report(self.controller_report[2])
+                elif snap.get("connected"):
                     raise ValueError("Read GRBL on the selected port to check the uploaded servo profile.")
-                servo = ServoSettings.from_report(self.controller_report[2])
+                else:
+                    preview_only = True
             x_travel, y_travel = self.travel_limits(snap)
             if snap.get("connected") and (x_travel is None or y_travel is None):
                 raise ValueError(TRAVEL_READ_ERROR)
@@ -767,6 +771,10 @@ class Studio:
                 error = "Enter a numeric drawing feed and pen settle time on the Machine tab."
             messagebox.showerror("Review G-code", error, parent=parent)
             return
+        from .plot_timeline import PlotTimeline
+        from .timeline_ui import TimelineWindow
+        timeline_window = None
+
         def preview(review):
             lines = review.program.splitlines()
             travel_note = ""
@@ -774,13 +782,17 @@ class Studio:
                 travel_note = ("Offline review uses saved travel limits." if None not in (x_travel, y_travel)
                                else "Offline review uses paper bounds for axes without a saved travel limit.")
                 travel_note += " Connect and review again to run.\n\n"
+            if preview_only:
+                travel_note += "Servo calibration is unverified. Connect and read GRBL to enable export.\n\n"
             return (travel_note + review.summary() + "\n\n" + "\n".join(lines[:400]) +
                     (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else ''))
         dialog, controls = self.text_dialog("G-code review / Run sketch", preview(review), parent=parent)
         dialog.geometry('680x540')
         dry_run = tk.BooleanVar(value=initial_dry)
         def update_preview():
-            nonlocal job, program
+            nonlocal job, program, review, timeline_window
+            if timeline_window is not None and timeline_window.window.winfo_exists():
+                timeline_window.window.destroy()
             job = replace(job, dry_run=dry_run.get())
             review = job.review()
             program = review.program
@@ -821,10 +833,20 @@ class Studio:
             except ValueError as exc:
                 messagebox.showerror('Run sketch', str(exc), parent=dialog)
             else:
-                JobWindow(self.root, session, operation, on_complete=(lambda: on_complete(job)) if on_complete else None)
+                JobWindow(self.root, session, operation, timeline=PlotTimeline(job, review, current.get('work') or (0, 0)),
+                          on_complete=(lambda: on_complete(job)) if on_complete else None)
                 dialog.destroy()
                 self.status.set('Sketch running. Use its progress window to pause, resume, or stop.')
-        ttk.Button(actions, text='Save .gcode', command=lambda: self.save_program(dialog, program)).pack(side='left')
+        def show_timeline():
+            nonlocal timeline_window
+            if timeline_window is not None and timeline_window.window.winfo_exists():
+                timeline_window.window.lift()
+                return
+            plan = PlotTimeline(job, review, snap.get('work') or (0, 0))
+            timeline_window = TimelineWindow(dialog, plan)
+
+        ttk.Button(actions, text='Plot timeline', command=show_timeline).pack(side='left', padx=4)
+        ttk.Button(actions, text='Save .gcode', state='disabled' if preview_only else 'normal', command=lambda: self.save_program(dialog, program)).pack(side='left')
         ttk.Button(actions, text='Run sketch', style='Primary.TButton', command=run,
                    state='normal' if snap.get('connected') else 'disabled').pack(side='right')
 

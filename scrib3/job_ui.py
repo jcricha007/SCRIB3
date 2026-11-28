@@ -4,7 +4,7 @@ from tkinter import ttk
 
 
 class JobWindow:
-    def __init__(self, root, session, operation, on_complete=None):
+    def __init__(self, root, session, operation, on_complete=None, *, timeline=None):
         self.on_complete = on_complete
         self.session, self.operation = session, operation
         self.window = tk.Toplevel(root)
@@ -17,6 +17,12 @@ class JobWindow:
         panel.pack(fill='both', expand=True)
         self.status = tk.StringVar(value='Preparing reviewed sketch…')
         ttk.Label(panel, textvariable=self.status, wraplength=460).pack(anchor='w', pady=8)
+        self.trace = None
+        if timeline is not None:
+            from .timeline_ui import TraceView
+            self.window.geometry('640x490')
+            self.trace = TraceView(panel, timeline)
+            self.trace.pack(fill='both', expand=True)
         self.progress = ttk.Progressbar(panel, maximum=1)
         self.progress.pack(fill='x', pady=8)
         buttons = ttk.Frame(panel)
@@ -50,6 +56,11 @@ class JobWindow:
         else:
             self.status.set(f"{state.capitalize()} • {job['accepted']} / {job['total']} lines accepted • {snap['state']}\n"
                             f"Motion confirmed through line {job['completed']}; accepted lines may still be queued.")
+        stopped = state == 'stopped' and snap['connected'] and not job['error']
+        if (self.trace is not None and job.get('operation') == self.operation
+                and job['total'] == len(self.trace.timeline.events)
+                and (job['completed'] != self.trace.count or self.trace.stopped != stopped)):
+            self.trace.show(job['completed'], stopped=stopped)
         self.progress.configure(maximum=max(1, job['total']), value=job['accepted'])
         self.pause.state(['!disabled'] if self.active and state == 'running' else ['disabled'])
         self.resume.state(['!disabled'] if self.active and state == 'paused' else ['disabled'])

@@ -233,6 +233,7 @@ class Controller:
                 raise ValueError('Wait for automatic motion setup to finish. Resolve Alarm first if needed.')
             self.busy = True
             if kind == "run_job":
+                self.job = dict(state="queued", accepted=0, completed=0, total=0, error="", operation=self.operation_id+1)
                 self.job_stop.clear()
                 self.job_pause_requested = False
             self.operation_kind = kind
@@ -610,7 +611,7 @@ class Controller:
         lines = replace(job, machine=machine).commands()
         with self.lock:
             state = 'stopping' if self.job_stop.is_set() else 'running'
-            self.job = dict(state=state, accepted=0, completed=0, total=len(lines), error='')
+            self.job = dict(state=state, accepted=0, completed=0, total=len(lines), error='', operation=self.operation_id)
         self.job_paused = False
         self.running_servo = job.machine.servo
         def wait_idle():
