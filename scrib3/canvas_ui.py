@@ -147,6 +147,7 @@ class CanvasEditor(ttk.Frame):
             "Bed",
             [
                 ("Paper only", lambda: self.bed(None)),
+                ("Hide P1S placement guides", self.hide_p1s_guides),
                 ("P1S (256 x 256 mm)", lambda: self.bed((256, 256))),
                 ("H2S (340 x 320 mm)", lambda: self.bed((340, 320))),
                 ("Custom bed", self.custom_bed),
@@ -596,6 +597,10 @@ class CanvasEditor(ttk.Frame):
         dy = {"Top": -b, "Bottom": self.board.height - d}.get(edge, 0)
         self.transform(dx=dx, dy=dy)
 
+    def hide_p1s_guides(self):
+        self.studio.p1s_overlay = None
+        self.paint()
+
     def bed(self, size):
         self.commit(replace(self.board, bed=size), self.selection)
 
@@ -862,6 +867,10 @@ class CanvasEditor(ttk.Frame):
                                 fill="#c6d2df", outline=theme.MUTED, tags="bed_guide")
         cv.create_rectangle(l+3, t+4, l+b.width*k+3, t+b.height*k+4, fill=theme.BORDER, outline="")
         cv.create_rectangle(l, t, l + b.width * k, t + b.height * k, fill=theme.PAPER, outline="#a4b4c5")
+        overlay = getattr(self.studio, "p1s_overlay", None)
+        if overlay:
+            from .p1s_layout_ui import board_overlay
+            board_overlay(self, *overlay)
         if self.grid.get():
             step = 10
             while step * k < 25:

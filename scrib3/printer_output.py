@@ -66,6 +66,7 @@ class PrinterPlan:
     height: float
     seconds: float
     dry: bool
+    paper_origin: tuple
 
     def gcode(self):
         h = self.holder
@@ -160,9 +161,14 @@ def order_paths(paths, start=(0, 0)):
     return tuple(output)
 
 
-def plan_printer(board: Board, holder: Holder, *, fit=False, dry=True, optimize=True):
+def plan_printer(board: Board, holder: Holder, *, fit=False, dry=True, optimize=True, area=None):
     board.checked()
     x0, y0, x1, y1 = holder.reach()
+    if area is not None:
+        a,b,c,d = area
+        if not (x0 <= a < c <= x1 and y0 <= b < d <= y1):
+            raise ValueError("Paper placement exceeds calibrated reach.")
+        x0,y0,x1,y1 = area
     scale = min(1, (x1 - x0) / board.width, (y1 - y0) / board.height)
     if scale < 1 - 1e-9 and not fit:
         raise ValueError(
@@ -192,6 +198,9 @@ def plan_printer(board: Board, holder: Holder, *, fit=False, dry=True, optimize=
                     and -1e-9 <= ny + holder.offset_y <= bh + 1e-9
                 ):
                     raise ValueError("Rounded point exceeds calibrated travel. Increase clearance.")
+                if area is not None and not (x0-1e-9 <= nx+holder.offset_x <= x1+1e-9 and
+                                              y0-1e-9 <= ny+holder.offset_y <= y1+1e-9):
+                    raise ValueError("Rounded motion crosses the paper or clip boundary. Adjust placement.")
                 if not points or points[-1] != point:
                     points.append(point)
             if len(points) < 2:
@@ -208,4 +217,4 @@ def plan_printer(board: Board, holder: Holder, *, fit=False, dry=True, optimize=
         passes.append((color, tuple(converted)))
     if not passes:
         raise ValueError("Add visible artwork.")
-    return PrinterPlan(holder, tuple(passes), scale, w, h, seconds, dry)
+    return PrinterPlan(holder, tuple(passes), scale, w, h, seconds, dry, (left+holder.offset_x, front+holder.offset_y))

@@ -31,7 +31,12 @@ class PrinterWindow:
         body.rowconfigure(0, weight=1)
         view = ttk.Frame(body)
         view.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
-        ttk.Label(view, text=f"{printer} plate preview", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
+        header = ttk.Frame(view)
+        header.pack(fill="x", pady=(0, 6))
+        ttk.Label(header, text=f"{printer} plate preview", style="Title.TLabel").pack(side="left")
+        if printer == "P1S":
+            from .p1s_layout_ui import PlacementWindow
+            ttk.Button(header, text="Paper placement…", command=lambda: PlacementWindow(self)).pack(side="right")
         self.plan = None
         self.canvas = tk.Canvas(view, width=150, height=180, bg=theme.DESK,
                                 highlightthickness=1, highlightbackground=theme.BORDER)
@@ -142,8 +147,7 @@ class PrinterWindow:
             return
         self.plan = plan
         self.draw_plate()
-        a, b, c, d = plan.holder.reach()
-        left, front = (a + c - plan.width) / 2, (b + d - plan.height) / 2
+        left, front = plan.paper_origin
         self.status.set(
             f"{100*plan.scale:.1f}% · Paper {plan.width:.1f} × {plan.height:.1f} mm · Front-left {left:.1f}, {front:.1f} mm · "
             f"{len(plan.passes)} pens · {plan.seconds/60:.1f} min motion plus homing and pauses."
@@ -172,7 +176,7 @@ class PrinterWindow:
             return
         h = plan.holder
         a, b, c, d = h.reach()
-        left, front = (a + c - plan.width) / 2, (b + d - plan.height) / 2
+        left, front = plan.paper_origin
         cv.create_rectangle(*pt(left, front), *pt(left + plan.width, front + plan.height),
                             fill=theme.PAPER, outline=theme.BORDER)
         cv.create_rectangle(*pt(a, b), *pt(c, d), outline=theme.ACCENT, dash=(4, 3))
