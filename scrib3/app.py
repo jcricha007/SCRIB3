@@ -418,7 +418,10 @@ class Studio:
                   style="Muted.TLabel", wraplength=320).grid(row=5, columnspan=2, sticky="w", pady=(6, 0))
         self.motion_defaults_button = ttk.Button(panel, text='Smooth motion', padding=(5, 6),
                                                 command=lambda: MotionDefaultsWindow(self))
-        self.motion_defaults_button.grid(row=6, columnspan=2, sticky="ew", pady=(3, 2))
+        self.motion_defaults_button.grid(row=6, column=0, sticky="ew", pady=(3, 2))
+        from .quality_card_ui import QualityCardWindow
+        ttk.Button(panel, text="Quality test sheet", command=lambda: QualityCardWindow(self)).grid(
+            row=6, column=1, sticky="ew", pady=(3, 2))
         ttk.Separator(panel).grid(row=7, columnspan=2, sticky="ew", pady=6)
         self.field(panel, 8, "Preset name", self.preset_name)
         ttk.Button(panel, text="Save preset", command=self.save_preset).grid(row=9, column=0, sticky="ew", pady=4)
@@ -724,7 +727,7 @@ class Studio:
     def inspect(self) -> None:
         self.controls.read_report()
 
-    def review(self, board_editor=None, on_complete=None, initial_dry=True) -> None:
+    def review(self, board_editor=None, on_complete=None, initial_dry=True, *, trial=None) -> None:
         parent = board_editor.root if board_editor is not None and board_editor.root.winfo_viewable() else self.root
         session = self.controls.session
         snap = session.snapshot() if session else {}
@@ -733,7 +736,9 @@ class Studio:
                 raise ValueError("Calibration changed. Reset and reconnect before reviewing a job.")
             if snap.get('motion_defaults_pending'):
                 raise ValueError('Wait for automatic motion setup to finish before reviewing a job.')
-            if board_editor is None:
+            if trial is not None:
+                drawing, sheet = trial.paths, trial.sheet
+            elif board_editor is None:
                 self.refresh()
                 drawing, sheet = self.drawing, self.sheet
             else:
@@ -753,7 +758,7 @@ class Studio:
             paper_x, paper_y = required_travel(sheet.width, sheet.height, self.paper_mount.get())
             machine = Machine(
                 x_travel if x_travel is not None else paper_x, y_travel if y_travel is not None else paper_y,
-                to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
+                trial.feed if trial is not None else to_mm(self.feed.get(), self.unit), self.pen_up.get(), self.pen_down.get(), float(self.settle.get()),
                 servo=servo, paper_mount=self.paper_mount.get(), seam_overlap=to_mm(self.seam_overlap.get(), self.unit),
             )
             machine = replace(machine, settle=max(.5, machine.settle))
@@ -778,6 +783,8 @@ class Studio:
                     (f"\n\nShowing 400 of {len(lines):,} lines." if len(lines) > 400 else ''))
         dialog, controls = self.text_dialog("G-code review / Run sketch", preview(review), parent=parent)
         dialog.geometry('680x540')
+        if trial is not None:
+            dialog.title(f"SCRIB3 | Quality test at {trial.feed:g} mm/min")
         dry_run = tk.BooleanVar(value=initial_dry)
         def update_preview():
             nonlocal job, program
