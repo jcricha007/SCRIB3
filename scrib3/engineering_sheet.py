@@ -9,6 +9,7 @@ from tkinter import ttk
 from uuid import uuid4
 
 import numpy as np
+from . import theme
 from .board import Board, Mark, PAPER, DEFAULT_PEN, bounds
 from .creator import load_mesh, project_mesh
 from .geometry import shape, check_size
@@ -117,7 +118,7 @@ class SheetWindow:
         self.window = tk.Toplevel(editor.root)
         self.window.title("SCRIB3 | Engineering drawing sheet")
         self.window.transient(editor.root)
-        self.canvas = tk.Canvas(self.window, background="white", width=650, height=360)
+        self.canvas = tk.Canvas(self.window, background=theme.PAPER, width=650, height=360, highlightthickness=1, highlightbackground=theme.BORDER)
         self.canvas.pack(fill="both", expand=True)
         panel = ttk.Frame(self.window, padding=8)
         panel.pack(fill="x")
@@ -149,7 +150,7 @@ class SheetWindow:
         ttk.Label(panel, textvariable=self.status, wraplength=480).grid(
             row=3, columnspan=3, sticky="w"
         )
-        self.add = ttk.Button(panel, text="Apply four views", command=self.apply, state="disabled")
+        self.add = ttk.Button(panel, text="Apply four views", style="Primary.TButton", command=self.apply, state="disabled")
         self.add.grid(row=3, column=3)
         self.views = self.result = None
         for v in (self.paper, self.scale, self.title, self.frame):

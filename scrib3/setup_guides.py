@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme
 from .units import display, setting_display
 from .paper_mount import MOUNTS, exceeds_travel, origin_corner, required_travel
 from .motion_profile import DRAW_FEED, TRAVEL_FEED, JOG_FEED, SMOOTH_SETTINGS
@@ -146,8 +147,8 @@ class PaperGuideWindow:
         self.instructions = tk.StringVar()
         ttk.Label(footer, textvariable=self.instructions, wraplength=570).pack(anchor='w', pady=8)
         ttk.Button(footer, text="Use John's Letter setup", command=self.use_john).pack(fill='x', pady=(0, 5))
-        ttk.Button(footer, text='Apply and save paper setup', command=self.apply).pack(fill='x')
-        self.canvas = tk.Canvas(panel, background='#e7ecf3', highlightthickness=0, height=300)
+        ttk.Button(footer, text='Apply and save paper setup', style='Primary.TButton', command=self.apply).pack(fill='x')
+        self.canvas = tk.Canvas(panel, background=theme.DESK, highlightthickness=0, height=300)
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<Configure>', lambda _: self.paint())
         self.window.bind('<FocusIn>', lambda _: self.update_travel_status())

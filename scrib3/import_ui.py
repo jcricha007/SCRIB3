@@ -5,6 +5,7 @@ from threading import Event, Thread
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme
 from .artwork_import import ImportOptions, read_artwork
 from .drawing import Sheet, fit_to_sheet
 from .raster import RASTER_FORMATS, TraceOptions
@@ -86,7 +87,7 @@ class ImportWindow:
             previews.columnconfigure(i, weight=1, uniform='preview')
             previews.rowconfigure(1, weight=1)
             ttk.Label(previews, text=title, style='Muted.TLabel').grid(row=0, column=i, sticky='w')
-            canvas = tk.Canvas(previews, background='white', highlightthickness=1, highlightbackground='#d7dce5')
+            canvas = tk.Canvas(previews, background=theme.PAPER, highlightthickness=1, highlightbackground=theme.BORDER)
             canvas.grid(row=1, column=i, sticky='nsew', padx=(0, 8) if i == 0 else (0, 0))
             canvas.bind('<Configure>', lambda _event: self.paint())
             self.canvases.append(canvas)

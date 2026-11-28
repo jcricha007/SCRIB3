@@ -60,7 +60,7 @@ class DiscoveryTests(TestCase):
             detect(port="COM7", serial_factory=lambda *a, **k: (_ for _ in ()).throw(OSError("port is busy")))
 
     def test_terminal_connection_preserves_explicit_baud_and_auto_detect(self):
-        with patch("scrib3.app.main") as desktop:
+        with patch("scrib3.startup.main") as desktop:
             main(["--connect", "auto", "--baud", "115200"])
             desktop.assert_called_once_with(connect="auto", baud=115200)
         with patch("scrib3.discovery.detect", return_value=SimpleNamespace(port="COM7", baud=57600, identity="GRBL")) as scan:

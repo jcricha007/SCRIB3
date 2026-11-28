@@ -14,6 +14,7 @@ from scrib3.board import (
     save_board,
 )
 
+from scrib3.demo import sample, sample_board
 from scrib3.geometry import shape, hatch, bezier
 from scrib3.svg_artwork import import_svg
 
@@ -22,6 +23,21 @@ BLUE = "#522d80"
 
 
 class BoardTests(TestCase):
+    def test_airframe_retains_the_svg_page_position_and_pen_groups(self):
+        board = sample_board()
+        self.assertEqual((board.width, board.height), (279.4, 215.9))
+        self.assertEqual(board.pens(), ("#171717",))
+        self.assertEqual(len(board.marks), 117)
+        self.assertEqual({m.groups for m in board.marks},
+                         {("exterior",), ("panel-lines",), ("surface-marks",)})
+        self.assertEqual(sample(), tuple(m.points for m in board.marks))
+        # The first move is at (73.8, 349.8) in a viewBox starting at (48, 34.25).
+        x, y = board.marks[0].points[0]
+        self.assertAlmostEqual(x, (73.8 - 48) * 279.4 / 473)
+        self.assertAlmostEqual(y, (349.8 - 34.25) * 215.9 / 365.5)
+        pen_paths, sheet = board.plot_layer("#171717")
+        self.assertEqual(pen_paths[0][0], (x, sheet.height - y))
+
     def test_color_and_placement_round_trip_across_pen_passes(self):
         with TemporaryDirectory() as tmp:
             p = Path(tmp) / "drawing.svg"
@@ -85,6 +101,7 @@ class BoardDesktopTests(TestCase):
                 root.update()
                 editor = studio.board_editor
                 self.assertTrue(editor.canvas.winfo_viewable())
+                editor.new()
                 cv = editor.canvas
                 editor.mode.set("Rectangle")
                 cv.event_generate("<Button-1>", x=120, y=120)

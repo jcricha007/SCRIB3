@@ -7,7 +7,8 @@ from tkinter import filedialog, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
 from . import design, presets
-from .board import MAX_PATHS, MAX_POINTS
+from .board import Board, MAX_PATHS, MAX_POINTS
+from .branding import wordmark
 from .assistant_ui import AssistantWindow
 from .jobs import PlotJob
 from .job_ui import JobWindow
@@ -18,10 +19,11 @@ from .artwork_import import CONVERSION_EXTENSIONS, IMPORT_FORMATS
 from .vector_io import FORMATS, read_drawing, write_drawing
 from .paper_mount import origin_corner, required_travel
 from .motion_profile import START_HOLD_SECONDS
+from .startup import main as main
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .controller import TRAVEL_READ_ERROR, controller_travel
-from .demo import sample
+from .demo import SAMPLE_NAME, sample, sample_board
 from .drawing import Drawing, Sheet, fit_to_sheet
 from .gcode import Machine, write_program
 from .firmware import SERVO_PROFILE, ServoSettings
@@ -70,7 +72,7 @@ class Studio:
         self.reloop = tk.BooleanVar(value=data['reloop'])
         self.show_travel = tk.BooleanVar(value=False)
         self.show_original = tk.BooleanVar(value=False)
-        self.source_name = tk.StringVar(value="Mountain contours")
+        self.source_name = tk.StringVar(value=SAMPLE_NAME)
         self.status = tk.StringVar(value="Choose a port to connect, or open the drawing board.")
         self.stats = tk.StringVar()
         self.metric_points = tk.StringVar()
@@ -91,6 +93,7 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.board_window = None
+        self.board_editor = None
         self.board_active = False
         self.p1s_output = None
         self.p1s_active = False
@@ -115,7 +118,6 @@ class Studio:
         window.bind("<FocusIn>", lambda event: setattr(self, "board_active", board), add="+")
 
     def workspace_action(self, action, board=None):
-        editor = getattr(self, 'board_editor', None)
         from_board = self.board_active if board is None else board
         machine_tab = self.tabs.select() != str(self.design_tab)
         if action == "review" and not from_board and self.p1s_active:
@@ -123,8 +125,8 @@ class Studio:
             return "break"
         if action == "review":
             if from_board or machine_tab:
-                if editor and editor.board.pens():
-                    self.review(board_editor=editor)
+                if self.current_board.pens():
+                    self.review(board_editor=self.get_board_editor())
                 else:
                     self.show_board()
             else:
@@ -132,7 +134,7 @@ class Studio:
         elif from_board or machine_tab or self.p1s_active:
             if not from_board:
                 self.show_board()
-                editor = self.board_editor
+            editor = self.get_board_editor()
             editor.guard({"open": editor.open, "save": editor.save, "import": editor.import_file}[action])
         elif action != "save":
             self.import_drawing()
@@ -141,10 +143,15 @@ class Studio:
     def on_board(self):
         return self.board_active
 
-    def show_board(self):
-        if self.board_window is None:
+    @property
+    def current_board(self) -> Board:
+        return self.board_editor.board if self.board_editor is not None else sample_board()
+
+    def get_board_editor(self):
+        if self.board_editor is None:
             from .canvas_ui import CanvasEditor
             self.board_window = tk.Toplevel(self.root)
+            self.board_window.withdraw()
             self.board_window.title("SCRIB3 | Drawing board")
             self.board_window.geometry("1180x760")
             self.board_window.minsize(800, 600)
@@ -152,9 +159,13 @@ class Studio:
             self.board_editor.pack(fill="both", expand=True)
             self.bind_workspace(self.board_window, board=True)
             self.board_window.protocol("WM_DELETE_WINDOW", self.hide_board)
+        return self.board_editor
+
+    def show_board(self):
+        editor = self.get_board_editor()
         self.board_window.deiconify()
         self.board_window.lift()
-        self.board_editor.canvas.focus_set()
+        editor.canvas.focus_set()
         self.board_active = True
         self.queue_board_preview()
 
@@ -169,8 +180,11 @@ class Studio:
     def show_workbench(self):
         if self.p1s_active:
             self.p1s_panel.pack_forget()
+            self.status_bar.pack(side="bottom", fill="x")
+            self.status_separator.pack(side="bottom", fill="x", pady=(3, 2))
             self.machine_body.pack(fill="both", expand=True)
             self.p1s_active = False
+            self.workspace_name.set("Machine & calibration")
             self.target_button.configure(text="P1S setup", command=self.show_p1s)
             self.queue_board_preview()
         self.root.deiconify()
@@ -186,8 +200,11 @@ class Studio:
             self.p1s_panel = ttk.Frame(self.workbench)
             self.p1s_output = PrinterWindow(self, "P1S", container=self.p1s_panel)
         self.machine_body.pack_forget()
+        self.status_bar.pack_forget()
+        self.status_separator.pack_forget()
         self.p1s_panel.pack(fill="both", expand=True)
         self.p1s_active = True
+        self.workspace_name.set("P1S setup")
         self.target_button.configure(text="GRBL controls", command=self.show_workbench)
         self.review_button.configure(text="Preview P1S job", state="normal")
         self.root.deiconify()
@@ -200,34 +217,39 @@ class Studio:
         self.ui_font = theme.configure(self.root)
 
     def build_layout(self) -> None:
-        frame = self.workbench = ttk.Frame(self.root, padding=(12, 4, 12, 4))
+        frame = self.workbench = ttk.Frame(self.root)
         frame.pack(fill="both", expand=True)
-        header = ttk.Frame(frame)
-        header.pack(fill="x", pady=(0, 3))
-        ttk.Label(header, text="SCRIB3", style="Brand.TLabel").pack(side="left")
+        header = ttk.Frame(frame, style="Header.TFrame", padding=(12, 6))
+        header.pack(fill="x")
+        wordmark(header, style="Brand.TLabel", points=24, ink=theme.PALE_BLUE).pack(side="left")
+        ttk.Separator(header, orient="vertical", style="Header.TSeparator").pack(side="left", fill="y", padx=9, pady=4)
+        self.workspace_name = tk.StringVar(value="Machine & calibration")
+        ttk.Label(header, textvariable=self.workspace_name, style="Header.TLabel").pack(side="left")
         self.review_button = ttk.Button(header, text="Review board pen", style="Primary.TButton",
                                         command=lambda: self.workspace_action("review", board=False))
         self.review_button.pack(side="right", pady=1)
 
-        ttk.Button(header, text="Open drawing board", command=self.show_board).pack(side="right", padx=6)
-        self.target_button = ttk.Button(header, text="P1S setup", command=self.show_p1s)
+        ttk.Button(header, text="Open drawing board", style="Header.TButton", command=self.show_board).pack(side="right", padx=5)
+        self.target_button = ttk.Button(header, text="P1S setup", style="Header.TButton", command=self.show_p1s)
         self.target_button.pack(side="right")
-        unit_bar = ttk.Frame(header)
-        unit_bar.pack(side="right", padx=12)
-        ttk.Label(unit_bar, text="Units").pack(side="left", padx=(0, 5))
+        status_bar = self.status_bar = ttk.Frame(frame, padding=(12, 1))
+        status_bar.pack(side='bottom', fill='x')
+        status_bar.columnconfigure(0, weight=1)
+        unit_bar = ttk.Frame(status_bar)
+        unit_bar.grid(row=0, column=1, padx=8)
+        ttk.Label(unit_bar, text="Units", style="Muted.TLabel").pack(side="left", padx=(0, 4))
         self.unit_picker = ttk.Combobox(unit_bar, textvariable=self.unit_choice,
                                        values=tuple(UNIT_NAMES.values()), state="readonly", width=11)
         self.unit_picker.pack(side="left")
         self.unit_picker.bind("<<ComboboxSelected>>", self.change_units)
 
-        status_bar = ttk.Frame(frame)
-        status_bar.pack(side='bottom', fill='x')
         self.status_label = tk.Label(status_bar, textvariable=self.status, background=BACKGROUND, foreground=MUTED,
-                                    wraplength=730, height=2, justify='left', anchor='w')
-        self.status_label.pack(side='left', fill='x', expand=True)
-        status_bar.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(200, event.width-140)))
-        ttk.Separator(frame).pack(side="bottom", fill="x", pady=(3, 2))
-        body = self.machine_body = ttk.Frame(frame)
+                                    wraplength=520, width=1, height=2, justify='left', anchor='w')
+        self.status_label.grid(row=0, column=0, sticky="ew")
+        self.status_label.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(40, event.width-4)))
+        self.status_separator = ttk.Separator(frame)
+        self.status_separator.pack(side="bottom", fill="x", pady=(3, 2))
+        body = self.machine_body = ttk.Frame(frame, padding=(12, 7, 12, 0))
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
@@ -284,16 +306,19 @@ class Studio:
         self.design_tab = drawing
         self.monitor = ttk.Frame(body, padding=(0, 4))
         self.monitor.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
-        self.monitor_title = tk.StringVar(value="Drawing board")
+        self.monitor_title = tk.StringVar(value=SAMPLE_NAME)
         ttk.Label(self.monitor, textvariable=self.monitor_title, style="Title.TLabel").pack(anchor="w", pady=4)
-        self.monitor_canvas = tk.Canvas(self.monitor, background=PAPER, highlightthickness=0)
+        self.monitor_canvas = tk.Canvas(self.monitor, background=DESK, width=120, height=120,
+                                        highlightthickness=1, highlightbackground=theme.BORDER)
         self.monitor_canvas.pack(fill="both", expand=True)
         self.monitor_canvas.bind("<Configure>", self.queue_board_preview)
         self.monitor_summary = tk.StringVar()
-        ttk.Label(self.monitor, textvariable=self.monitor_summary, wraplength=480).pack(anchor="w", pady=6)
+        summary = ttk.Label(self.monitor, textvariable=self.monitor_summary, style="Muted.TLabel", wraplength=480)
+        summary.pack(anchor="w", pady=6)
+        self.monitor.bind("<Configure>", lambda event: summary.configure(wraplength=max(100, event.width - 12)))
         tabs.bind("<<NotebookTabChanged>>", self.switch_machine_view)
         self.switch_machine_view()
-        ttk.Label(status_bar, textvariable=self.controls.state_text, style='Badge.TLabel').pack(side='right', padx=(10, 0))
+        ttk.Label(status_bar, textvariable=self.controls.state_text, style='Badge.TLabel').grid(row=0, column=2)
 
     def switch_machine_view(self, *_):
         if self.p1s_active:
@@ -317,19 +342,15 @@ class Studio:
         self.monitor_pending = None
         if self.p1s_active or self.tabs.select() == str(self.design_tab):
             return
-        editor = getattr(self, "board_editor", None)
-        board = editor.board if editor else None
-        pens = board.pens() if board else ()
-        color = editor.pen.get() if editor else ""
-        self.monitor_title.set(editor.path.stem if editor and editor.path else "Drawing board")
+        board = self.current_board
+        pens = board.pens()
+        color = self.board_editor.pen.get() if self.board_editor is not None else pens[0]
         self.review_button.configure(text="Review board pen", state="normal" if color in pens else "disabled")
-        cv = self.monitor_canvas
-        cv.delete("all")
-        if not pens:
-            self.monitor_summary.set("Open the drawing board to add artwork. Manual controls are available independently.")
-            return
         visible = tuple(m for m in board.marks if m.color not in board.hidden)
-        paint_paths(cv, [(visible, None, 0)], (0, 0, board.width, board.height))
+        paint_paths(self.monitor_canvas, [(visible, None, 0)], (0, 0, board.width, board.height), paper=True)
+        if not pens:
+            self.monitor_summary.set(f"{board.width:g} × {board.height:g} mm  ·  Open the drawing board to add artwork.")
+            return
         paths_label = "path" if len(visible) == 1 else "paths"
         pens_label = "pen" if len(pens) == 1 else "pens"
         self.monitor_summary.set(f"{board.width:g} × {board.height:g} mm  ·  {len(visible):,} {paths_label}  ·  "
@@ -615,11 +636,11 @@ class Studio:
             self.assistant.window.lift()
 
     def shutdown(self):
-        if hasattr(self, "board_editor") and self.board_editor.board != self.board_editor.saved:
+        if self.board_editor is not None and self.board_editor.board != self.board_editor.saved:
             self.show_board()
             if not self.board_editor.discard():
                 return
-        if hasattr(self, "board_editor"):
+        if self.board_editor is not None:
             self.board_editor.cancel()
         for window in self.import_windows:
             window.close()
@@ -675,7 +696,7 @@ class Studio:
 
     def load_sample(self) -> None:
         try:
-            self.set_drawing("Mountain contours", sample())
+            self.set_drawing(SAMPLE_NAME, sample())
         except ValueError as exc:
             messagebox.showerror("Load sample", str(exc), parent=self.root)
         else:
@@ -704,7 +725,7 @@ class Studio:
         self.controls.read_report()
 
     def review(self, board_editor=None, on_complete=None, initial_dry=True) -> None:
-        parent = board_editor.root if board_editor is not None else self.root
+        parent = board_editor.root if board_editor is not None and board_editor.root.winfo_viewable() else self.root
         session = self.controls.session
         snap = session.snapshot() if session else {}
         try:
@@ -838,18 +859,3 @@ class Studio:
         output.configure(state="disabled")
         dialog.output = output
         return dialog, controls
-
-
-def main(connect: str | None = None, baud: int | None = None) -> None:
-    root = tk.Tk()
-    studio = Studio(root)
-    if connect is not None:
-        studio.tabs.select(studio.controls)
-        if connect == "auto" or baud is None:
-            root.after(100, lambda: studio.controls.auto_detect(
-                port=None if connect == "auto" else connect, baud=baud))
-        else:
-            studio.port.set(connect)
-            studio.baud.set(str(baud))
-            root.after(100, studio.controls.connect)
-    root.mainloop()

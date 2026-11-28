@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import tkinter as tk
+from tkinter import ttk
 from unittest import TestCase, skipUnless
 from unittest.mock import patch, Mock
 from zipfile import ZipFile
@@ -15,6 +16,55 @@ from scrib3.board import Mark
 
 @skipUnless(os.environ.get("SCRIB3_DESKTOP_TESTS") == "1", "Desktop display required")
 class CanvasDesktopTests(TestCase):
+    def test_compact_toolbars_layers_and_plate_preview(self):
+        root = tk.Tk()
+        try:
+            with TemporaryDirectory() as tmp:
+                studio = Studio(root, Path(tmp) / "preset.json")
+                root.geometry("800x650")
+                studio.show_board()
+                editor = studio.board_editor
+                studio.board_window.geometry("800x600")
+                ink = "#2563eb"
+                editor.commit(replace(editor.board, marks=(Mark(ink, ((1, 1), (10, 10))),)))
+                editor.layers.selection_set(ink)
+                root.update()
+                self.assertEqual(editor.pen.get(), ink)
+                self.assertEqual(int(editor.layers.set(ink, "count")), 1)
+                self.assertTrue(editor.layers.item(ink, "image"))
+                header = editor.winfo_children()[0]
+                side = editor.layers.master
+                fit, = (item for item in side.winfo_children()
+                        if isinstance(item, ttk.Button) and item.cget("text") == "Fit view")
+                self.assertGreaterEqual(fit.winfo_height(), fit.winfo_reqheight())
+                menus = [button for button in header.winfo_children() if isinstance(button, ttk.Menubutton)]
+                self.assertEqual(len(menus), 7)
+                for button in menus:
+                    self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
+                board_menu = menus[0].nametowidget(menus[0].cget("menu"))
+                self.assertEqual(board_menu.type(0), "command")
+
+                printer = studio.show_p1s()
+                root.update()
+                plate = printer.canvas.coords("plate")
+                self.assertTrue(plate)
+                self.assertFalse(studio.status_bar.winfo_ismapped())
+                actions = printer.dry_button.master
+                for button in actions.winfo_children():
+                    if isinstance(button, ttk.Button):
+                        self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
+                                             studio.p1s_panel.winfo_rooty() + studio.p1s_panel.winfo_height())
+                root.geometry("1200x800")
+                root.update()
+                self.assertNotEqual(plate, printer.canvas.coords("plate"))
+                studio.show_workbench()
+                root.update()
+                self.assertTrue(studio.status_bar.winfo_ismapped())
+        finally:
+            for callback in root.tk.call("after", "info"):
+                root.after_cancel(callback)
+            root.destroy()
+
     def test_color_sequence_advances_only_on_successful_current_job(self):
         from scrib3.job_ui import JobWindow
 
@@ -55,6 +105,7 @@ class CanvasDesktopTests(TestCase):
                 studio.show_board()
                 root.update()
                 e = studio.board_editor
+                e.new()
                 e.bed((340, 320))
                 root.update()
                 self.assertTrue(e.canvas.find_withtag("bed_guide"))
@@ -116,6 +167,7 @@ class CanvasDesktopTests(TestCase):
                 s = Studio(root, Path(tmp) / "preset.json")
                 s.show_board()
                 e = s.board_editor
+                e.new()
                 e.commit(replace(e.board, marks=(Mark("#522d80", ((10, 10), (20, 20))),)))
                 e.pen.set("#522d80")
                 s.firmware.set("Manual commands")
@@ -144,9 +196,17 @@ class CanvasDesktopTests(TestCase):
             root = tk.Tk()
             try:
                 studio = Studio(root, Path(tmp) / "preset.json")
+                startup_board = studio.current_board
                 printer = studio.show_p1s()
                 self.assertIs(printer.window, root)
                 self.assertIsNone(studio.board_window)
+                for key, value in dict(offset_x=0, offset_y=-28, contact_z=2, lift_z=5).items():
+                    printer.fields[key].set(str(value))
+                printer.fit.set(True)
+                plan = printer.preview()
+                self.assertEqual([color for color, _ in plan.passes], list(startup_board.pens()))
+                self.assertIsNone(studio.board_window)
+                printer.fit.set(False)
                 studio.show_board()
                 self.assertIs(studio.board_editor.printer("P1S"), printer)
                 root.update()
@@ -178,7 +238,7 @@ class CanvasDesktopTests(TestCase):
                 handoff.assert_called_once_with(path)
                 with ZipFile(path) as archive:
                     self.assertEqual(archive.read("Metadata/plate_1.gcode"), plan.gcode().encode("ascii"))
-                self.assertFalse(studio.board_editor.board.marks)
+                self.assertIs(studio.board_editor.board, startup_board)
                 studio.hide_board()
                 self.assertTrue(studio.p1s_active)
                 studio.show_workbench()
@@ -199,6 +259,7 @@ class CanvasDesktopTests(TestCase):
                 studio.show_board()
                 root.update()
                 editor = studio.board_editor
+                editor.new()
                 points = ((40, 50), (48, 28), (70, 32), (85, 50))
                 line = Mark(editor.pen.get(), cubic_points(points), ("Mirror",), controls=points)
                 editor.insert((line,), placed=True)

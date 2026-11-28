@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme
 from .drawing import Sheet, fit_to_sheet
 from .lettering import ALIGNMENTS, FONTS, add_caption, lettering
 
@@ -30,7 +31,7 @@ class LetteringWindow:
         footer = ttk.Frame(panel)
         footer.pack(side='bottom', fill='x', pady=(10, 0))
         ttk.Label(footer, textvariable=self.status, wraplength=550).pack(anchor='w')
-        self.apply_button = ttk.Button(footer, text='Apply lettering', command=self.apply, state='disabled')
+        self.apply_button = ttk.Button(footer, text='Apply lettering', style='Primary.TButton', command=self.apply, state='disabled')
         self.apply_button.pack(side='right', pady=(8, 0))
         ttk.Button(footer, text='Preview', command=self.preview).pack(side='left', pady=(8, 0))
         self.text = tk.Text(panel, height=4, width=50, wrap='word')
@@ -52,7 +53,7 @@ class LetteringWindow:
                       if choices else ttk.Entry(fields, textvariable=var))
             widget.grid(row=row, column=1, sticky='ew', pady=2)
             var.trace_add('write', self.invalidate)
-        self.canvas = tk.Canvas(panel, background='#eef1f5', highlightthickness=0)
+        self.canvas = tk.Canvas(panel, background=theme.DESK, highlightthickness=0)
         self.canvas.pack(fill='both', expand=True, pady=(8, 0))
         self.canvas.bind('<Configure>', lambda _: self.paint())
 

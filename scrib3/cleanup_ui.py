@@ -6,6 +6,7 @@ from math import hypot, isfinite, sqrt
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme
 from .board import bounds
 from .preview_canvas import paint_paths
 from .routing import joined_strokes_with_indices, stroke_key
@@ -86,7 +87,7 @@ class CleanupWindow:
         self.window = tk.Toplevel(editor.root)
         self.window.title("SCRIB3 | Preview line cleanup")
         self.window.transient(editor.root)
-        self.view = tk.Canvas(self.window, width=600, height=340, background="white")
+        self.view = tk.Canvas(self.window, width=600, height=340, background=theme.PAPER, highlightthickness=1, highlightbackground=theme.BORDER)
         self.view.pack(fill="both", expand=True, padx=8, pady=8)
         options = ttk.Frame(self.window, padding=8)
         options.pack(fill="x")
@@ -119,7 +120,7 @@ class CleanupWindow:
         ttk.Button(buttons, text="Preview", command=self.update).pack(side="left")
         ttk.Button(buttons, text="Fit view", command=self.fit).pack(side="left")
         ttk.Button(buttons, text="Cancel", command=self.window.destroy).pack(side="right")
-        ttk.Button(buttons, text="Apply", command=self.apply).pack(side="right")
+        ttk.Button(buttons, text="Apply", style="Primary.TButton", command=self.apply).pack(side="right")
         self.after_id = None
         self.result = None
         self.zoom, self.center, self.mapping = 1, None, None

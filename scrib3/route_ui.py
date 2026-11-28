@@ -4,6 +4,7 @@ from threading import Event, Thread
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme
 from .route_compare import run_vpype
 
 
@@ -36,10 +37,10 @@ class RouteWindow:
         self.compare_button = ttk.Button(actions, text='Compare with vpype', command=self.compare)
         self.compare_button.pack(side='left')
         ttk.Button(actions, text='Cancel', command=self.cancel.set).pack(side='left', padx=6)
-        self.apply_button = ttk.Button(actions, text='Apply shorter route', command=self.apply, state='disabled')
+        self.apply_button = ttk.Button(actions, text='Apply shorter route', style='Primary.TButton', command=self.apply, state='disabled')
         self.apply_button.pack(side='right')
         ttk.Button(footer, text='Restore built-in route', command=self.restore).pack(anchor='e', pady=(8, 0))
-        self.canvas = tk.Canvas(panel, background='#eef1f5', highlightthickness=0)
+        self.canvas = tk.Canvas(panel, background=theme.DESK, highlightthickness=0)
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<Configure>', lambda _: self.paint())
         self.after_id = self.window.after(80, self.poll)
