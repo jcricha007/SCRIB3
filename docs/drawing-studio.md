@@ -4,7 +4,9 @@ SCRIB3 starts with **Machine & calibration → Control**. Select the Arduino por
 
 Use **Machine controls** in the drawing board header to bring the GRBL controls forward. Choose the display units in the machine window’s status bar. The **Design** tab prepares a workbench drawing, which you can place using **Board → Add workbench artwork**.
 
-![SCRIB3 drawing board with the example artwork, tool rail and pen layers](images/drawing-studio.png)
+The startup board contains the isometric airframe at the SVG's original position on landscape Letter paper. Its exterior, panel lines and surface marks are separate named groups. **Board → Save** saves your own copy. **Board → New** opens a blank sheet.
+
+![SCRIB3 drawing board with the isometric airframe and its single pen layer](images/drawing-studio.png)
 
 [Machine and calibration window](images/machine-workspace.png) · [P1S plate preview and holder settings](images/p1s-setup.png)
 

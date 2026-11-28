@@ -14,6 +14,8 @@ variants, tracing controls, and Mac/Windows setup. Exports include SVG, DXF, dra
 
 The desktop splash stays visible for at least five seconds while the workspaces load.
 
+The default drawing is **Isometric airframe**, a single-pen illustration on landscape US Letter paper (11 × 8.5 in). It opens in the machine preview and drawing board. Use **Board → Save** to keep an edited copy or **Board → New** to start with a blank sheet.
+
 SCRIB3 opens **Machine & calibration** on the **Control** tab. Choose the Arduino port and baud, then **Connect** to jog the DIY plotter, raise or lower the pen, set manual home or paper zero, and calibrate travel. **Open drawing board** opens a second window in the same app. You can keep both windows side by side. The machine window previews the board, and closing and reopening the board preserves the drawing and the controller session.
 
 On the board, **Import → SVG / vector / image → Keep SVG page coordinates** places separately imported SVG layers at their original positions. Use **Edit nodes** for paths and cubic curves, **Edit lettering** for SCRIB3 text, and **Save selection as element** for reusable logos. **Preview line cleanup** overlays the result at the chosen pen width. **Import → Engineering drawing sheet** builds top, front, right and isometric views from a mesh at one scale. Board files, elements and sheet templates use the `.scrib3` format.

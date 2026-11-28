@@ -1,28 +1,21 @@
-from __future__ import annotations
+"""The editable artwork SCRIB3 opens on launch."""
 
-from math import cos, pi, sin
+from functools import cache
+from pathlib import Path
 
+from .board import Board, PAPER
 from .drawing import Drawing
+from .svg_artwork import import_svg
+
+
+SAMPLE_NAME = "Isometric airframe"
+
+
+@cache
+def sample_board() -> Board:
+    artwork = Path(__file__).with_name("assets") / "isometric-airframe.svg"
+    return Board(*PAPER["Letter"], marks=import_svg(artwork)).checked()
 
 
 def sample() -> Drawing:
-    """An editable line-art sample that also exercises independent strokes."""
-    sun = tuple((488 + 52 * cos(i * pi / 40), 96 + 52 * sin(i * pi / 40)) for i in range(81))
-    return (
-        sun,
-        ((0, 303), (72, 237), (113, 256), (257, 67), (312, 133), (340, 118),
-         (491, 284), (522, 262), (632, 162), (761, 292), (820, 255), (900, 306)),
-        ((185, 163), (224, 149), (246, 167), (273, 139), (300, 161), (323, 145)),
-        ((265, 92), (283, 115), (282, 130)),
-        ((577, 212), (612, 202), (639, 223), (670, 200)),
-        ((0, 337), (99, 318), (176, 335), (235, 356), (320, 354), (381, 325),
-         (425, 314), (486, 323), (542, 347), (600, 359), (662, 348), (735, 320),
-         (814, 331), (900, 341)),
-        ((0, 382), (96, 362), (172, 377), (246, 403), (333, 402), (387, 370),
-         (438, 356), (486, 366), (558, 400), (631, 411), (704, 386), (763, 372),
-         (829, 379), (900, 395)),
-        ((0, 428), (119, 410), (190, 430), (269, 447), (356, 444), (427, 414),
-         (481, 411), (552, 446), (627, 458), (716, 433), (793, 420), (900, 439)),
-        ((0, 472), (119, 454), (205, 470), (282, 491), (366, 489), (436, 461),
-         (490, 457), (553, 486), (641, 505), (742, 478), (813, 469), (900, 483)),
-    )
+    return tuple(mark.points for mark in sample_board().marks)

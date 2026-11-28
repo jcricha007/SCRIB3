@@ -23,7 +23,7 @@ from .startup import main as main
 from .units import UNIT_NAMES, display, from_mm, to_mm
 from .controls import ControlPanel
 from .controller import TRAVEL_READ_ERROR, controller_travel
-from .demo import sample
+from .demo import SAMPLE_NAME, sample, sample_board
 from .drawing import Drawing, Sheet, fit_to_sheet
 from .gcode import Machine, write_program
 from .firmware import SERVO_PROFILE, ServoSettings
@@ -72,7 +72,7 @@ class Studio:
         self.reloop = tk.BooleanVar(value=data['reloop'])
         self.show_travel = tk.BooleanVar(value=False)
         self.show_original = tk.BooleanVar(value=False)
-        self.source_name = tk.StringVar(value="Mountain contours")
+        self.source_name = tk.StringVar(value=SAMPLE_NAME)
         self.status = tk.StringVar(value="Choose a port to connect, or open the drawing board.")
         self.stats = tk.StringVar()
         self.metric_points = tk.StringVar()
@@ -93,6 +93,7 @@ class Studio:
         self.controller_report: tuple[str, int, str] | None = None
 
         self.board_window = None
+        self.board_editor = None
         self.board_active = False
         self.p1s_output = None
         self.p1s_active = False
@@ -117,7 +118,6 @@ class Studio:
         window.bind("<FocusIn>", lambda event: setattr(self, "board_active", board), add="+")
 
     def workspace_action(self, action, board=None):
-        editor = getattr(self, 'board_editor', None)
         from_board = self.board_active if board is None else board
         machine_tab = self.tabs.select() != str(self.design_tab)
         if action == "review" and not from_board and self.p1s_active:
@@ -125,8 +125,8 @@ class Studio:
             return "break"
         if action == "review":
             if from_board or machine_tab:
-                if editor and editor.board.pens():
-                    self.review(board_editor=editor)
+                if self.current_board.pens():
+                    self.review(board_editor=self.get_board_editor())
                 else:
                     self.show_board()
             else:
@@ -134,7 +134,7 @@ class Studio:
         elif from_board or machine_tab or self.p1s_active:
             if not from_board:
                 self.show_board()
-                editor = self.board_editor
+            editor = self.get_board_editor()
             editor.guard({"open": editor.open, "save": editor.save, "import": editor.import_file}[action])
         elif action != "save":
             self.import_drawing()
@@ -143,10 +143,15 @@ class Studio:
     def on_board(self):
         return self.board_active
 
-    def show_board(self):
-        if self.board_window is None:
+    @property
+    def current_board(self) -> Board:
+        return self.board_editor.board if self.board_editor is not None else sample_board()
+
+    def get_board_editor(self):
+        if self.board_editor is None:
             from .canvas_ui import CanvasEditor
             self.board_window = tk.Toplevel(self.root)
+            self.board_window.withdraw()
             self.board_window.title("SCRIB3 | Drawing board")
             self.board_window.geometry("1180x760")
             self.board_window.minsize(800, 600)
@@ -154,9 +159,13 @@ class Studio:
             self.board_editor.pack(fill="both", expand=True)
             self.bind_workspace(self.board_window, board=True)
             self.board_window.protocol("WM_DELETE_WINDOW", self.hide_board)
+        return self.board_editor
+
+    def show_board(self):
+        editor = self.get_board_editor()
         self.board_window.deiconify()
         self.board_window.lift()
-        self.board_editor.canvas.focus_set()
+        editor.canvas.focus_set()
         self.board_active = True
         self.queue_board_preview()
 
@@ -297,7 +306,7 @@ class Studio:
         self.design_tab = drawing
         self.monitor = ttk.Frame(body, padding=(0, 4))
         self.monitor.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
-        self.monitor_title = tk.StringVar(value="Drawing board")
+        self.monitor_title = tk.StringVar(value=SAMPLE_NAME)
         ttk.Label(self.monitor, textvariable=self.monitor_title, style="Title.TLabel").pack(anchor="w", pady=4)
         self.monitor_canvas = tk.Canvas(self.monitor, background=DESK, width=120, height=120,
                                         highlightthickness=1, highlightbackground=theme.BORDER)
@@ -333,11 +342,9 @@ class Studio:
         self.monitor_pending = None
         if self.p1s_active or self.tabs.select() == str(self.design_tab):
             return
-        editor = getattr(self, "board_editor", None)
-        board = editor.board if editor else Board()
+        board = self.current_board
         pens = board.pens()
-        color = editor.pen.get() if editor else ""
-        self.monitor_title.set(editor.path.stem if editor and editor.path else "Drawing board")
+        color = self.board_editor.pen.get() if self.board_editor is not None else pens[0]
         self.review_button.configure(text="Review board pen", state="normal" if color in pens else "disabled")
         visible = tuple(m for m in board.marks if m.color not in board.hidden)
         paint_paths(self.monitor_canvas, [(visible, None, 0)], (0, 0, board.width, board.height), paper=True)
@@ -629,11 +636,11 @@ class Studio:
             self.assistant.window.lift()
 
     def shutdown(self):
-        if hasattr(self, "board_editor") and self.board_editor.board != self.board_editor.saved:
+        if self.board_editor is not None and self.board_editor.board != self.board_editor.saved:
             self.show_board()
             if not self.board_editor.discard():
                 return
-        if hasattr(self, "board_editor"):
+        if self.board_editor is not None:
             self.board_editor.cancel()
         for window in self.import_windows:
             window.close()
@@ -689,7 +696,7 @@ class Studio:
 
     def load_sample(self) -> None:
         try:
-            self.set_drawing("Mountain contours", sample())
+            self.set_drawing(SAMPLE_NAME, sample())
         except ValueError as exc:
             messagebox.showerror("Load sample", str(exc), parent=self.root)
         else:
@@ -718,7 +725,7 @@ class Studio:
         self.controls.read_report()
 
     def review(self, board_editor=None, on_complete=None, initial_dry=True) -> None:
-        parent = board_editor.root if board_editor is not None else self.root
+        parent = board_editor.root if board_editor is not None and board_editor.root.winfo_viewable() else self.root
         session = self.controls.session
         snap = session.snapshot() if session else {}
         try:

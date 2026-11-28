@@ -7,7 +7,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from . import theme
 from .atomic_export import write_atomic_export
-from .board import Board
 from .motion_profile import START_HOLD_SECONDS
 from .printer_output import Holder, P1S_FINISH_HOLD_SECONDS, PRINTERS, plan_printer
 
@@ -128,8 +127,7 @@ class PrinterWindow:
 
     def preview(self):
         try:
-            editor = getattr(self.studio, "board_editor", None)
-            board, dry = editor.board if editor else Board(), self.dry.get()
+            board, dry = self.studio.current_board, self.dry.get()
             if self.printer == "P1S":
                 from .p1s_workflow import BOARD, DRY_A4, qualification_board
                 target = self.target.get()

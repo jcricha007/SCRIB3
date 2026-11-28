@@ -59,13 +59,13 @@ class CanvasEditor(ttk.Frame):
         super().__init__(parent)
         self.studio = studio
         self.root = parent.winfo_toplevel()
-        self.board = self.saved = Board()
+        self.board = self.saved = studio.current_board
         self.path = None
         self.history = []
         self.future = []
         self.selection = set()
         self.revision = 0
-        self.pen = tk.StringVar(value=DEFAULT_PEN)
+        self.pen = tk.StringVar(value=self.board.pens()[0])
         self.mode = tk.StringVar(value="Select")
         self.grid = tk.BooleanVar(value=True)
         self.snap = tk.BooleanVar(value=False)
@@ -176,7 +176,7 @@ class CanvasEditor(ttk.Frame):
         )
         footer = ttk.Frame(self, padding=(12, 5))
         footer.pack(side="bottom", fill="x")
-        self.status = tk.StringVar(value="Import artwork or draw on the paper.")
+        self.status = tk.StringVar(value=studio.monitor_title.get())
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status, style="Muted.TLabel", width=1).grid(row=0, column=0, sticky="ew")
         self.info = tk.StringVar()
@@ -346,6 +346,10 @@ class CanvasEditor(ttk.Frame):
         self.cancel()
         self.board = self.saved = board
         self.path = path
+        self.studio.monitor_title.set(path.stem if path else "Drawing board")
+        pens = board.pens()
+        if self.pen.get() not in pens:
+            self.pen.set(next(iter(pens), DEFAULT_PEN))
         self.history.clear()
         self.future.clear()
         self.selection.clear()
@@ -375,6 +379,7 @@ class CanvasEditor(ttk.Frame):
             save_board(Path(target), self.board)
             self.path = Path(target)
             self.saved = self.board
+            self.studio.monitor_title.set(self.path.stem)
             self.studio.queue_board_preview()
             self.status.set("Board saved.")
             return True

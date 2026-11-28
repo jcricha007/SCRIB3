@@ -105,6 +105,7 @@ class CanvasDesktopTests(TestCase):
                 studio.show_board()
                 root.update()
                 e = studio.board_editor
+                e.new()
                 e.bed((340, 320))
                 root.update()
                 self.assertTrue(e.canvas.find_withtag("bed_guide"))
@@ -166,6 +167,7 @@ class CanvasDesktopTests(TestCase):
                 s = Studio(root, Path(tmp) / "preset.json")
                 s.show_board()
                 e = s.board_editor
+                e.new()
                 e.commit(replace(e.board, marks=(Mark("#522d80", ((10, 10), (20, 20))),)))
                 e.pen.set("#522d80")
                 s.firmware.set("Manual commands")
@@ -194,9 +196,17 @@ class CanvasDesktopTests(TestCase):
             root = tk.Tk()
             try:
                 studio = Studio(root, Path(tmp) / "preset.json")
+                startup_board = studio.current_board
                 printer = studio.show_p1s()
                 self.assertIs(printer.window, root)
                 self.assertIsNone(studio.board_window)
+                for key, value in dict(offset_x=0, offset_y=-28, contact_z=2, lift_z=5).items():
+                    printer.fields[key].set(str(value))
+                printer.fit.set(True)
+                plan = printer.preview()
+                self.assertEqual([color for color, _ in plan.passes], list(startup_board.pens()))
+                self.assertIsNone(studio.board_window)
+                printer.fit.set(False)
                 studio.show_board()
                 self.assertIs(studio.board_editor.printer("P1S"), printer)
                 root.update()
@@ -228,7 +238,7 @@ class CanvasDesktopTests(TestCase):
                 handoff.assert_called_once_with(path)
                 with ZipFile(path) as archive:
                     self.assertEqual(archive.read("Metadata/plate_1.gcode"), plan.gcode().encode("ascii"))
-                self.assertFalse(studio.board_editor.board.marks)
+                self.assertIs(studio.board_editor.board, startup_board)
                 studio.hide_board()
                 self.assertTrue(studio.p1s_active)
                 studio.show_workbench()
@@ -249,6 +259,7 @@ class CanvasDesktopTests(TestCase):
                 studio.show_board()
                 root.update()
                 editor = studio.board_editor
+                editor.new()
                 points = ((40, 50), (48, 28), (70, 32), (85, 50))
                 line = Mark(editor.pen.get(), cubic_points(points), ("Mirror",), controls=points)
                 editor.insert((line,), placed=True)

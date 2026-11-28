@@ -55,12 +55,41 @@ class StartupTests(TestCase):
             studio = observed["studio"]
             self.assertEqual(studio.tabs.select(), str(studio.controls))
             self.assertIsNone(studio.controls.session)
+            root.update_idletasks()
+            self.assertIsNone(studio.board_window)
+            self.assertEqual(studio.monitor_title.get(), "Isometric airframe")
+            self.assertIn("117 paths", studio.monitor_summary.get())
+            self.assertEqual(studio.source_name.get(), studio.monitor_title.get())
+            self.assertTrue(studio.review_button.instate(["!disabled"]))
+            studio.firmware.set("Manual commands")
+            studio.review_button.invoke()
+            root.update()
+            self.assertFalse(studio.board_window.winfo_viewable())
+            review, = (child for child in root.winfo_children()
+                       if isinstance(child, tk.Toplevel) and "G-code review" in child.title())
+            self.assertTrue(review.winfo_viewable())
+            review.destroy()
             studio.show_board()
+            editor = studio.board_editor
+            self.assertIs(editor.board, editor.saved)
+            self.assertIsNone(editor.path)
+            self.assertEqual(editor.pen.get(), "#171717")
+            self.assertEqual(len(editor.board.marks), 117)
             for workspace in (studio.workbench, studio.board_editor):
                 header = workspace.winfo_children()[0]
                 wordmark, = (child for child in header.winfo_children()
                              if isinstance(child, ttk.Label) and child.cget("text") == "CRIB3")
                 self.assertTrue(wordmark.cget("image"))
+            saved = Path(directory) / "airframe-copy.scrib3"
+            with patch("tkinter.filedialog.asksaveasfilename", return_value=str(saved)):
+                self.assertTrue(editor.save())
+            self.assertTrue(saved.is_file())
+            editor.new()
+            studio.hide_board()
+            studio.show_board()
+            root.update_idletasks()
+            self.assertFalse(editor.board.marks)
+            self.assertTrue(studio.review_button.instate(["disabled"]))
 
     def test_missing_artwork_preserves_the_text_header(self):
         root = tk.Tk()

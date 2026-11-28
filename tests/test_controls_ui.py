@@ -160,6 +160,7 @@ class DesktopTests(TestCase):
             editor = studio.board_editor
             assert editor.winfo_toplevel() != panel.winfo_toplevel()
             assert editor.winfo_viewable() and panel.winfo_viewable()
+            editor.new()
             line = Mark(editor.pen.get(), ((3, 3), (13, 3)))
             editor.insert((line,), placed=True)
             root.update()
