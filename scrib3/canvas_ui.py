@@ -5,6 +5,7 @@ from dataclasses import replace
 from math import atan2, degrees, hypot
 from pathlib import Path
 from uuid import uuid4
+import sqlite3
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 from xml.etree.ElementTree import ParseError
@@ -90,6 +91,7 @@ class CanvasEditor(ttk.Frame):
             [
                 ("New", self.new),
                 ("Open", self.open),
+                ("Board library…", studio.open_library),
                 ("Save", self.save),
                 ("Save as", lambda: self.save(True)),
                 ("Export SVG", self.export),
@@ -323,8 +325,23 @@ class CanvasEditor(ttk.Frame):
             self.future.clear()
             self.board = board
             self.revision += 1
+            self.checkpoint()
         self.selection = board.text_selection(selection or ())
         self.sync()
+
+    def catalog(self, action):
+        try:
+            action()
+        except (OSError, ValueError, sqlite3.Error) as err:
+            self.status.set(f"Board library: {err}")
+
+    def checkpoint(self):
+        library = self.studio.library
+        if self.board == self.saved:
+            self.catalog(library.clear)
+        else:
+            name = self.path.stem if self.path else self.studio.monitor_title.get()
+            self.catalog(lambda: library.checkpoint(self.board, name))
 
     def undo(self, redo=False):
         self.cancel()
@@ -332,6 +349,7 @@ class CanvasEditor(ttk.Frame):
         if source:
             dest.append(self.board)
             self.board = source.pop()
+            self.checkpoint()
             self.selection.clear()
             self.revision += 1
             self.sync()
@@ -348,9 +366,13 @@ class CanvasEditor(ttk.Frame):
         if self.discard():
             self.load(Board(), None)
 
-    def load(self, board, path):
+    def load(self, board, path, *, recovered=None):
         self.cancel()
-        self.board = self.saved = board
+        library = self.studio.library
+        if recovered is not None:
+            library.checkpoint(board, recovered.name, recovered=recovered)
+        self.board = board
+        self.saved = board if recovered is None else None
         self.path = path
         self.studio.monitor_title.set(path.stem if path else "Drawing board")
         pens = board.pens()
@@ -363,6 +385,14 @@ class CanvasEditor(ttk.Frame):
         self.reset_view()
         self.sync()
         self.status.set(f"Opened {path.name}." if path else "New drawing board.")
+        if recovered is not None:
+            self.studio.monitor_title.set(recovered.name)
+            self.status.set("Recovered unsaved edits. Save to choose a new board file.")
+            self.studio.update_recovery_link()
+        else:
+            self.catalog(library.clear)
+            if path:
+                self.catalog(lambda: library.remember(path, board))
 
     def open(self):
         target = filedialog.askopenfilename(
@@ -388,6 +418,8 @@ class CanvasEditor(ttk.Frame):
             self.studio.monitor_title.set(self.path.stem)
             self.studio.queue_board_preview()
             self.status.set("Board saved.")
+            self.catalog(self.studio.library.clear)
+            self.catalog(lambda: self.studio.library.remember(self.path, self.board))
             return True
         return False
 
@@ -539,6 +571,7 @@ class CanvasEditor(ttk.Frame):
                             locked=self.board.locked & colors, pen_order=tuple(c for c in self.board.pen_order if c in colors))
             save_board(Path(path), asset)
             self.status.set(f"Saved {Path(path).stem}.")
+            self.catalog(lambda: self.studio.library.remember(Path(path), asset, "Templates" if template else "Elements"))
 
     def open_asset(self, template=False):
         title = "New from sheet template" if template else "Insert saved element"
@@ -546,6 +579,7 @@ class CanvasEditor(ttk.Frame):
                                           filetypes=[("SCRIB3", "*.scrib3")])
         if path:
             asset = load_board(Path(path))
+            self.catalog(lambda: self.studio.library.remember(Path(path), asset, "Templates" if template else "Elements"))
             if template:
                 if self.discard():
                     self.load(asset, None)
