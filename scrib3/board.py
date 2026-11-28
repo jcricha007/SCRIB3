@@ -166,7 +166,7 @@ def bounds(marks):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def save_board(path, board):
+def encode_board(board):
     board.checked()
     paths, texts = [], {}
     for m in board.marks:
@@ -201,14 +201,25 @@ def save_board(path, board):
     encoded = json.dumps(data, allow_nan=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > 32_000_000:
         raise ValueError("Board exceeds 32 MB.")
+    return encoded
+
+
+def save_board(path, board):
+    encoded = encode_board(board)
     write_atomic_export(path, lambda p: p.write_bytes(encoded))
 
 
 def load_board(path):
+    if path.stat().st_size > 32_000_000:
+        raise ValueError("Board exceeds 32 MB.")
+    return decode_board(path.read_bytes())
+
+
+def decode_board(payload):
+    if len(payload) > 32_000_000:
+        raise ValueError("Board exceeds 32 MB.")
     try:
-        if path.stat().st_size > 32_000_000:
-            raise ValueError("Board exceeds 32 MB.")
-        d = json.loads(path.read_text(encoding="utf-8"))
+        d = json.loads(payload.decode('utf-8'))
         if d["format"] != "scrib3-board" or d["version"] not in (1, 2):
             raise ValueError("Unknown board format.")
         texts = {}

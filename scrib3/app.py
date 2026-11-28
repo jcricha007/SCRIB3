@@ -42,6 +42,9 @@ class Studio:
         self.configure_theme()
 
         self.preset_file = preset_file if preset_file is not None else presets.preset_path()
+        from .board_library import BoardLibrary
+        self.library = BoardLibrary(self.preset_file.parent)
+        self.library_window = None
         load_warning = ""
         try:
             self.initial_preset = presets.load(self.preset_file)
@@ -99,6 +102,8 @@ class Studio:
         self.p1s_active = False
         self.monitor_pending = None
         self.build_layout()
+        self.update_recovery_link()
+        root.bind('<Destroy>', lambda e: self.library.release() if e.widget is root else None, add='+')
         self.bind_workspace(root, board=False)
         self.tabs.select(self.controls)
         self.paper_mount.trace_add('write', self.mount_changed)
@@ -169,6 +174,27 @@ class Studio:
         self.board_active = True
         self.queue_board_preview()
 
+    def open_library(self, kind="Boards"):
+        from .board_library_ui import LibraryWindow
+        self.show_board()
+        if self.library_window is None or not self.library_window.window.winfo_exists():
+            self.library_window = LibraryWindow(self.board_editor, kind)
+        else:
+            self.library_window.kind.set(kind)
+            self.library_window.refresh()
+            self.library_window.window.lift()
+        return self.library_window
+
+    def update_recovery_link(self):
+        import sqlite3
+        try:
+            if self.library.entries("Recovery"):
+                self.recovery_button.grid(row=0, column=3, padx=4)
+            else:
+                self.recovery_button.grid_remove()
+        except (OSError, sqlite3.Error) as err:
+            self.status.set(f"Could not read board recovery: {err}")
+
     def hide_board(self):
         self.board_editor.cancel()
         self.board_window.withdraw()
@@ -235,6 +261,8 @@ class Studio:
         status_bar = self.status_bar = ttk.Frame(frame, padding=(12, 1))
         status_bar.pack(side='bottom', fill='x')
         status_bar.columnconfigure(0, weight=1)
+        self.recovery_button = ttk.Button(status_bar, text="Recover board edits…",
+                                          command=lambda: self.open_library("Recovery"))
         unit_bar = ttk.Frame(status_bar)
         unit_bar.grid(row=0, column=1, padx=8)
         ttk.Label(unit_bar, text="Units", style="Muted.TLabel").pack(side="left", padx=(0, 4))
@@ -642,6 +670,7 @@ class Studio:
                 return
         if self.board_editor is not None:
             self.board_editor.cancel()
+            self.board_editor.catalog(self.library.clear)
         for window in self.import_windows:
             window.close()
         if self.assistant is not None:
