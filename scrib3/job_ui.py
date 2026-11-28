@@ -25,7 +25,7 @@ class JobWindow:
         self.pause.pack(side='left')
         self.resume = ttk.Button(buttons, text='Resume', command=lambda: session.resume_job(operation), state='disabled')
         self.resume.pack(side='left', padx=8)
-        self.stop = ttk.Button(buttons, text='Stop print', command=lambda: session.stop_job(operation))
+        self.stop = ttk.Button(buttons, text='Stop print', style='Danger.TButton', command=lambda: session.stop_job(operation))
         self.stop.pack(side='left')
         ttk.Label(panel, text='Stop finishes buffered moves and raises the pen. From Pause, buffered moves resume to finish. Connection and home stay set. Use Control reset for an immediate abort.',
                   style='Muted.TLabel', wraplength=460).pack(anchor='w', pady=8)

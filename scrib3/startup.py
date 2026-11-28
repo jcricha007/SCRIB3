@@ -1,9 +1,12 @@
 """Show the desktop splash while the studio loads."""
 
 import tkinter as tk
+from math import ceil
 from time import monotonic
 
 from .branding import set_window_icon, show_splash
+
+MIN_SPLASH_SECONDS = 5
 
 
 def main(connect: str | None = None, baud: int | None = None) -> None:
@@ -12,7 +15,7 @@ def main(connect: str | None = None, baud: int | None = None) -> None:
     try:
         set_window_icon(root)
         splash = show_splash(root)
-        reveal_at = monotonic() + (0.9 if splash is not None else 0)
+        reveal_at = monotonic() + MIN_SPLASH_SECONDS if splash is not None else 0
         from .app import Studio
 
         studio = Studio(root)
@@ -34,5 +37,5 @@ def main(connect: str | None = None, baud: int | None = None) -> None:
                 studio.baud.set(str(baud))
                 root.after(100, studio.controls.connect)
 
-    root.after(max(0, round((reveal_at - monotonic()) * 1000)), open_workspace)
+    root.after(max(0, ceil((reveal_at - monotonic()) * 1000)), open_workspace)
     root.mainloop()

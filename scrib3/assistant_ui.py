@@ -4,6 +4,7 @@ from threading import Event, Thread
 import tkinter as tk
 from tkinter import ttk
 
+from . import theme
 from . import ollama
 from .drawing import Sheet, fit_to_sheet
 
@@ -61,7 +62,7 @@ class AssistantWindow:
         create_footer.pack(side='bottom', fill='x')
         self.draft_status = tk.StringVar(value='Your generated drawing will appear here before you apply it.')
         ttk.Label(create_footer, textvariable=self.draft_status, wraplength=640).pack(anchor='w', pady=6)
-        self.apply_button = ttk.Button(create_footer, text='Use drawing in workspace', command=self.apply, state='disabled')
+        self.apply_button = ttk.Button(create_footer, text='Use drawing in workspace', style='Primary.TButton', command=self.apply, state='disabled')
         self.apply_button.pack(anchor='e')
         ttk.Label(create, text='Describe the line drawing or the changes you want.').pack(anchor='w')
         self.design_input = self.text_area(create, 4)
@@ -70,7 +71,7 @@ class AssistantWindow:
         actions.pack(fill='x', pady=8)
         self.button(actions, 'Create new drawing', lambda: self.generate(False)).pack(side='left')
         self.button(actions, 'Revise workspace drawing', lambda: self.generate(True)).pack(side='left', padx=6)
-        self.preview = tk.Canvas(create, background='#e7ecf3', highlightthickness=0, height=100)
+        self.preview = tk.Canvas(create, background=theme.DESK, highlightthickness=0, height=100)
         self.preview.pack(fill='both', expand=True)
         self.preview.bind('<Configure>', lambda _: self.paint())
         self.after_id = self.window.after(80, self.poll)
@@ -79,7 +80,8 @@ class AssistantWindow:
     def text_area(self, parent, height, readonly=False, expand=False):
         frame = ttk.Frame(parent)
         frame.pack(fill='both' if expand else 'x', expand=expand)
-        text = tk.Text(frame, height=height, width=40, wrap='word', background='#ffffff', padx=8, pady=6)
+        text = tk.Text(frame, height=height, width=40, wrap='word', background=theme.SURFACE, padx=10, pady=7,
+                       highlightthickness=1, highlightbackground=theme.BORDER, highlightcolor=theme.ACCENT)
         scroll = ttk.Scrollbar(frame, command=text.yview)
         scroll.pack(side='right', fill='y')
         text.configure(yscrollcommand=scroll.set)

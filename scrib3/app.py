@@ -7,7 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 from xml.etree.ElementTree import ParseError
 
 from . import design, presets
-from .board import MAX_PATHS, MAX_POINTS
+from .board import Board, MAX_PATHS, MAX_POINTS
 from .branding import wordmark
 from .assistant_ui import AssistantWindow
 from .jobs import PlotJob
@@ -171,8 +171,11 @@ class Studio:
     def show_workbench(self):
         if self.p1s_active:
             self.p1s_panel.pack_forget()
+            self.status_bar.pack(side="bottom", fill="x")
+            self.status_separator.pack(side="bottom", fill="x", pady=(3, 2))
             self.machine_body.pack(fill="both", expand=True)
             self.p1s_active = False
+            self.workspace_name.set("Machine & calibration")
             self.target_button.configure(text="P1S setup", command=self.show_p1s)
             self.queue_board_preview()
         self.root.deiconify()
@@ -188,8 +191,11 @@ class Studio:
             self.p1s_panel = ttk.Frame(self.workbench)
             self.p1s_output = PrinterWindow(self, "P1S", container=self.p1s_panel)
         self.machine_body.pack_forget()
+        self.status_bar.pack_forget()
+        self.status_separator.pack_forget()
         self.p1s_panel.pack(fill="both", expand=True)
         self.p1s_active = True
+        self.workspace_name.set("P1S setup")
         self.target_button.configure(text="GRBL controls", command=self.show_workbench)
         self.review_button.configure(text="Preview P1S job", state="normal")
         self.root.deiconify()
@@ -202,34 +208,39 @@ class Studio:
         self.ui_font = theme.configure(self.root)
 
     def build_layout(self) -> None:
-        frame = self.workbench = ttk.Frame(self.root, padding=(12, 4, 12, 4))
+        frame = self.workbench = ttk.Frame(self.root)
         frame.pack(fill="both", expand=True)
-        header = ttk.Frame(frame)
-        header.pack(fill="x", pady=(0, 3))
-        wordmark(header, style="Brand.TLabel", points=28).pack(side="left")
+        header = ttk.Frame(frame, style="Header.TFrame", padding=(12, 6))
+        header.pack(fill="x")
+        wordmark(header, style="Brand.TLabel", points=24, ink=theme.PALE_BLUE).pack(side="left")
+        ttk.Separator(header, orient="vertical", style="Header.TSeparator").pack(side="left", fill="y", padx=9, pady=4)
+        self.workspace_name = tk.StringVar(value="Machine & calibration")
+        ttk.Label(header, textvariable=self.workspace_name, style="Header.TLabel").pack(side="left")
         self.review_button = ttk.Button(header, text="Review board pen", style="Primary.TButton",
                                         command=lambda: self.workspace_action("review", board=False))
         self.review_button.pack(side="right", pady=1)
 
-        ttk.Button(header, text="Open drawing board", command=self.show_board).pack(side="right", padx=6)
-        self.target_button = ttk.Button(header, text="P1S setup", command=self.show_p1s)
+        ttk.Button(header, text="Open drawing board", style="Header.TButton", command=self.show_board).pack(side="right", padx=5)
+        self.target_button = ttk.Button(header, text="P1S setup", style="Header.TButton", command=self.show_p1s)
         self.target_button.pack(side="right")
-        unit_bar = ttk.Frame(header)
-        unit_bar.pack(side="right", padx=12)
-        ttk.Label(unit_bar, text="Units").pack(side="left", padx=(0, 5))
+        status_bar = self.status_bar = ttk.Frame(frame, padding=(12, 1))
+        status_bar.pack(side='bottom', fill='x')
+        status_bar.columnconfigure(0, weight=1)
+        unit_bar = ttk.Frame(status_bar)
+        unit_bar.grid(row=0, column=1, padx=8)
+        ttk.Label(unit_bar, text="Units", style="Muted.TLabel").pack(side="left", padx=(0, 4))
         self.unit_picker = ttk.Combobox(unit_bar, textvariable=self.unit_choice,
                                        values=tuple(UNIT_NAMES.values()), state="readonly", width=11)
         self.unit_picker.pack(side="left")
         self.unit_picker.bind("<<ComboboxSelected>>", self.change_units)
 
-        status_bar = ttk.Frame(frame)
-        status_bar.pack(side='bottom', fill='x')
         self.status_label = tk.Label(status_bar, textvariable=self.status, background=BACKGROUND, foreground=MUTED,
-                                    wraplength=730, height=2, justify='left', anchor='w')
-        self.status_label.pack(side='left', fill='x', expand=True)
-        status_bar.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(200, event.width-140)))
-        ttk.Separator(frame).pack(side="bottom", fill="x", pady=(3, 2))
-        body = self.machine_body = ttk.Frame(frame)
+                                    wraplength=520, width=1, height=2, justify='left', anchor='w')
+        self.status_label.grid(row=0, column=0, sticky="ew")
+        self.status_label.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(40, event.width-4)))
+        self.status_separator = ttk.Separator(frame)
+        self.status_separator.pack(side="bottom", fill="x", pady=(3, 2))
+        body = self.machine_body = ttk.Frame(frame, padding=(12, 7, 12, 0))
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
@@ -288,14 +299,17 @@ class Studio:
         self.monitor.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         self.monitor_title = tk.StringVar(value="Drawing board")
         ttk.Label(self.monitor, textvariable=self.monitor_title, style="Title.TLabel").pack(anchor="w", pady=4)
-        self.monitor_canvas = tk.Canvas(self.monitor, background=PAPER, highlightthickness=0)
+        self.monitor_canvas = tk.Canvas(self.monitor, background=DESK, width=120, height=120,
+                                        highlightthickness=1, highlightbackground=theme.BORDER)
         self.monitor_canvas.pack(fill="both", expand=True)
         self.monitor_canvas.bind("<Configure>", self.queue_board_preview)
         self.monitor_summary = tk.StringVar()
-        ttk.Label(self.monitor, textvariable=self.monitor_summary, wraplength=480).pack(anchor="w", pady=6)
+        summary = ttk.Label(self.monitor, textvariable=self.monitor_summary, style="Muted.TLabel", wraplength=480)
+        summary.pack(anchor="w", pady=6)
+        self.monitor.bind("<Configure>", lambda event: summary.configure(wraplength=max(100, event.width - 12)))
         tabs.bind("<<NotebookTabChanged>>", self.switch_machine_view)
         self.switch_machine_view()
-        ttk.Label(status_bar, textvariable=self.controls.state_text, style='Badge.TLabel').pack(side='right', padx=(10, 0))
+        ttk.Label(status_bar, textvariable=self.controls.state_text, style='Badge.TLabel').grid(row=0, column=2)
 
     def switch_machine_view(self, *_):
         if self.p1s_active:
@@ -320,18 +334,16 @@ class Studio:
         if self.p1s_active or self.tabs.select() == str(self.design_tab):
             return
         editor = getattr(self, "board_editor", None)
-        board = editor.board if editor else None
-        pens = board.pens() if board else ()
+        board = editor.board if editor else Board()
+        pens = board.pens()
         color = editor.pen.get() if editor else ""
         self.monitor_title.set(editor.path.stem if editor and editor.path else "Drawing board")
         self.review_button.configure(text="Review board pen", state="normal" if color in pens else "disabled")
-        cv = self.monitor_canvas
-        cv.delete("all")
-        if not pens:
-            self.monitor_summary.set("Open the drawing board to add artwork. Manual controls are available independently.")
-            return
         visible = tuple(m for m in board.marks if m.color not in board.hidden)
-        paint_paths(cv, [(visible, None, 0)], (0, 0, board.width, board.height))
+        paint_paths(self.monitor_canvas, [(visible, None, 0)], (0, 0, board.width, board.height), paper=True)
+        if not pens:
+            self.monitor_summary.set(f"{board.width:g} × {board.height:g} mm  ·  Open the drawing board to add artwork.")
+            return
         paths_label = "path" if len(visible) == 1 else "paths"
         pens_label = "pen" if len(pens) == 1 else "pens"
         self.monitor_summary.set(f"{board.width:g} × {board.height:g} mm  ·  {len(visible):,} {paths_label}  ·  "

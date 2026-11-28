@@ -1,5 +1,6 @@
 """Paper layout, vector drawing and color-pass editing workspace."""
 
+from collections import Counter
 from dataclasses import replace
 from math import atan2, degrees, hypot
 from pathlib import Path
@@ -10,6 +11,8 @@ from xml.etree.ElementTree import ParseError
 
 from .board import Board, Mark, DEFAULT_PEN, PAPER, bounds, save_board, load_board, export_svg
 from .branding import wordmark
+from . import theme
+from .tool_icons import tool_icon
 from .geometry import shape, hatch, offset, array
 from .svg_artwork import import_svg
 from .lettering import FONTS, ALIGNMENTS
@@ -72,9 +75,12 @@ class CanvasEditor(ttk.Frame):
         self.preview = None
         self.timer = None
         self.bezier_points = []
-        bar = ttk.Frame(self, padding=(8, 6))
+        bar = ttk.Frame(self, style="Header.TFrame", padding=(12, 6))
         bar.pack(fill="x")
-        wordmark(bar, style="Title.TLabel", points=18, ink="#93c5fd").pack(side="left", padx=8)
+        wordmark(bar, style="Brand.TLabel", points=24, ink=theme.PALE_BLUE).pack(side="left")
+        ttk.Separator(bar, orient="vertical", style="Header.TSeparator").pack(side="left", fill="y", padx=9, pady=4)
+        ttk.Button(bar, text="Machine controls", style="Header.TButton",
+                   command=studio.show_workbench).pack(side="right")
         self.menu(
             bar,
             "Board",
@@ -168,16 +174,18 @@ class CanvasEditor(ttk.Frame):
                 ("Play / stop", self.play),
             ],
         )
-        footer = ttk.Frame(self, padding=6)
+        footer = ttk.Frame(self, padding=(12, 5))
         footer.pack(side="bottom", fill="x")
         self.status = tk.StringVar(value="Import artwork or draw on the paper.")
-        ttk.Label(footer, textvariable=self.status).pack(side="left")
+        footer.columnconfigure(0, weight=1)
+        ttk.Label(footer, textvariable=self.status, style="Muted.TLabel", width=1).grid(row=0, column=0, sticky="ew")
         self.info = tk.StringVar()
-        ttk.Label(footer, textvariable=self.info).pack(side="right")
+        ttk.Label(footer, textvariable=self.info).grid(row=0, column=1, sticky="e")
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True)
-        rail = ttk.Frame(body, padding=6)
+        rail = ttk.Frame(body, padding=(9, 9))
         rail.pack(side="left", fill="y")
+        ttk.Label(rail, text="Tools", style="Section.TLabel").pack(anchor="w", padx=6, pady=(0, 5))
         for tool in (
             "Select",
             "Pan",
@@ -191,17 +199,22 @@ class CanvasEditor(ttk.Frame):
             "Pentagon",
             "Eraser",
         ):
-            ttk.Radiobutton(rail, text=tool, value=tool, variable=self.mode).pack(
-                anchor="w", pady=3
-            )
-        side = ttk.Frame(body, padding=8)
+            icon = tool_icon(rail, tool)
+            button = ttk.Radiobutton(rail, text=tool, value=tool, variable=self.mode, style="Tool.TRadiobutton",
+                                     image=icon, compound="left")
+            button.icon = icon
+            button.pack(fill="x", pady=1)
+        side = ttk.Frame(body, padding=(12, 9))
         side.pack(side="right", fill="y")
-        ttk.Label(side, text="Pen layers", style="Title.TLabel").pack(anchor="w")
-        self.layers = tk.Listbox(
-            side, width=23, height=5, exportselection=False, bg="#1c2938", fg="white", bd=0
-        )
+        ttk.Label(side, text="Pen layers", style="Section.TLabel").pack(anchor="w")
+        self.layers = ttk.Treeview(side, columns=("count",), selectmode="browse", height=4)
+        self.layers.heading("#0", text="Pen", anchor="w")
+        self.layers.heading("count", text="Paths", anchor="e")
+        self.layers.column("#0", width=side.winfo_pixels("87p"), minwidth=80)
+        self.layers.column("count", width=side.winfo_pixels("33p"), minwidth=34, anchor="e", stretch=False)
+        self.swatches = {}
         self.layers.pack(fill="x", pady=6)
-        self.layers.bind("<<ListboxSelect>>", self.layer_selected)
+        self.layers.bind("<<TreeviewSelect>>", self.layer_selected)
         self.menu(
             side,
             "Layer actions",
@@ -216,16 +229,22 @@ class CanvasEditor(ttk.Frame):
             ],
             side="top",
         )
-        ttk.Label(side, text="Selection", style="Title.TLabel").pack(anchor="w", pady=(12, 5))
-        for text, fn in [
+        ttk.Separator(side).pack(fill="x", pady=10)
+        ttk.Label(side, text="Selection", style="Section.TLabel").pack(anchor="w", pady=(0, 4))
+        selection = ttk.Frame(side)
+        selection.pack(fill="x")
+        for column in (0, 1):
+            selection.columnconfigure(column, weight=1, uniform="actions")
+        for index, (text, fn) in enumerate([
             ("Select all", self.all),
             ("Transform", self.transform_dialog),
             ("Rotate 90°", lambda: self.transform(angle=90)),
             ("Center", lambda: self.transform(center=True)),
             ("Fit to paper", lambda: self.transform(fit=True)),
             ("Delete", self.delete),
-        ]:
-            ttk.Button(side, text=text, command=lambda f=fn: self.guard(f)).pack(fill="x", pady=2)
+        ]):
+            ttk.Button(selection, text=text, width=0, padding=(5, 4), command=lambda f=fn: self.guard(f)).grid(
+                row=index // 2, column=index % 2, sticky="ew", padx=1, pady=2)
         self.menu(
             side,
             "Fill selected",
@@ -241,12 +260,14 @@ class CanvasEditor(ttk.Frame):
             [(s, lambda edge=s: self.align(edge)) for s in ("Left", "Right", "Top", "Bottom")],
             side="top",
         )
-        ttk.Checkbutton(side, text="Grid", variable=self.grid, command=self.paint).pack(
-            anchor="w", pady=(12, 0)
-        )
-        ttk.Checkbutton(side, text="Snap to 1 mm", variable=self.snap).pack(anchor="w")
-        ttk.Button(side, text="Fit view", command=self.reset_view).pack(fill="x", pady=6)
-        self.canvas = tk.Canvas(body, bg="#17212e", highlightthickness=0, takefocus=True)
+        ttk.Separator(side).pack(fill="x", pady=(10, 6))
+        ttk.Label(side, text="View", style="Section.TLabel").pack(anchor="w")
+        view_options = ttk.Frame(side)
+        view_options.pack(fill="x", pady=2)
+        ttk.Checkbutton(view_options, text="Grid", variable=self.grid, command=self.paint).pack(side="left")
+        ttk.Checkbutton(view_options, text="Snap to 1 mm", variable=self.snap).pack(side="left", padx=(5, 0))
+        ttk.Button(side, text="Fit view", command=self.reset_view).pack(fill="x", pady=(2, 0))
+        self.canvas = tk.Canvas(body, bg=theme.DESK, highlightthickness=0, takefocus=True)
         self.canvas.pack(fill="both", expand=True)
         events = {
             "<Configure>": lambda e: self.paint(),
@@ -267,44 +288,6 @@ class CanvasEditor(ttk.Frame):
                            "<Command-Shift-Z>": lambda e: self.undo(True), "<BackSpace>": lambda e: self.delete()})
         for ev, fn in events.items():
             self.canvas.bind(ev, lambda e, f=fn: self.guard(lambda: f(e)))
-        style = ttk.Style(self.root)
-        for cls in ("TFrame", "TLabel", "TButton", "TMenubutton", "TRadiobutton", "TCheckbutton"):
-            style.configure(
-                "Canvas." + cls, background="#202c3a", foreground="#e4edf6", bordercolor="#425064"
-            )
-            style.map(
-                "Canvas." + cls,
-                background=[("active", "#34485d")],
-                foreground=[("active", "white")],
-            )
-        style.configure(
-            "Canvas.Title.TLabel",
-            background="#202c3a",
-            foreground="#d8e9fa",
-            font=(studio.ui_font, 11, "bold"),
-        )
-
-        def restyle(widget):
-            cls = widget.winfo_class()
-            if cls in (
-                "TFrame",
-                "TLabel",
-                "TButton",
-                "TMenubutton",
-                "TRadiobutton",
-                "TCheckbutton",
-            ):
-                widget.configure(
-                    style=(
-                        "Canvas.Title.TLabel"
-                        if widget.cget("style") == "Title.TLabel"
-                        else "Canvas." + cls
-                    )
-                )
-            for child in widget.winfo_children():
-                restyle(child)
-
-        restyle(self)
         self.sync()
         self.mode.trace_add("write", lambda *_: self.cancel())
         self.pen.trace_add("write", studio.queue_board_preview)
@@ -316,7 +299,7 @@ class CanvasEditor(ttk.Frame):
             messagebox.showerror("SCRIB3", str(e), parent=self.root)
 
     def menu(self, parent, text, items, side="left"):
-        b = ttk.Menubutton(parent, text=text)
+        b = ttk.Menubutton(parent, text=text, width=0, style="Header.TMenubutton" if side == "left" else "TMenubutton")
         m = tk.Menu(b, tearoff=False)
         for label, fn in items:
             m.add_command(label=label, command=lambda f=fn: self.guard(f))
@@ -369,6 +352,7 @@ class CanvasEditor(ttk.Frame):
         self.revision += 1
         self.reset_view()
         self.sync()
+        self.status.set(f"Opened {path.name}." if path else "New drawing board.")
 
     def open(self):
         target = filedialog.askopenfilename(
@@ -792,9 +776,9 @@ class CanvasEditor(ttk.Frame):
             )
 
     def layer_selected(self, e):
-        rows = self.layers.curselection()
-        if rows:
-            self.pen.set(self.colors()[rows[0]])
+        rows = self.layers.selection()
+        if rows and rows[0] != self.pen.get():
+            self.pen.set(rows[0])
 
     def colors(self):
         return tuple(dict.fromkeys((*self.board.pens(False), self.pen.get())))
@@ -823,15 +807,24 @@ class CanvasEditor(ttk.Frame):
 
     def sync(self):
         self.studio.queue_board_preview()
-        self.layers.delete(0, "end")
-        for i, c in enumerate(self.colors()):
-            label = f"{c}  {sum(m.color==c for m in self.board.marks)}"
-            label += (
-                " hidden" if c in self.board.hidden else " locked" if c in self.board.locked else ""
-            )
-            self.layers.insert("end", label)
-            if c == self.pen.get():
-                self.layers.selection_set(i)
+        colors = self.colors()
+        counts = Counter(mark.color for mark in self.board.marks)
+        for color in self.swatches.keys() - set(colors):
+            self.layers.delete(color)
+            del self.swatches[color]
+        size = max(8, self.layers.winfo_pixels("8p"))
+        for index, color in enumerate(colors):
+            if color not in self.swatches:
+                swatch = tk.PhotoImage(master=self.layers, width=size+3, height=size)
+                swatch.put(theme.MUTED, to=(0, 0, size, size))
+                swatch.put(color, to=(1, 1, size-1, size-1))
+                self.swatches[color] = swatch
+                self.layers.insert("", "end", iid=color, image=swatch)
+            state = " hidden" if color in self.board.hidden else " locked" if color in self.board.locked else ""
+            self.layers.item(color, text=color + state, values=(counts[color],))
+            self.layers.move(color, "", index)
+        if self.layers.selection() != (self.pen.get(),):
+            self.layers.selection_set(self.pen.get())
         self.paint()
 
     def reset_view(self):
@@ -861,33 +854,32 @@ class CanvasEditor(ttk.Frame):
         if b.bed:
             dx, dy = (bw - b.width) * k / 2, (bh - b.height) * k / 2
             cv.create_rectangle(l-dx, t-dy, l+b.width*k+dx, t+b.height*k+dy,
-                                fill="#303c4b", outline="#7991a7", tags="bed_guide")
-        cv.create_rectangle(
-            l, t, l + b.width * k, t + b.height * k, fill="#fbfcfd", outline="#7d8c9b"
-        )
+                                fill="#c6d2df", outline=theme.MUTED, tags="bed_guide")
+        cv.create_rectangle(l+3, t+4, l+b.width*k+3, t+b.height*k+4, fill=theme.BORDER, outline="")
+        cv.create_rectangle(l, t, l + b.width * k, t + b.height * k, fill=theme.PAPER, outline="#a4b4c5")
         if self.grid.get():
             step = 10
             while step * k < 25:
                 step *= 2
             for x in range(0, int(b.width) + 1, step):
                 px = l + x * k
-                cv.create_line(px, t, px, t + b.height * k, fill="#e4e9ef")
-                cv.create_text(px, t - 10, text=str(x), fill="#b8c6d5", font=("TkDefaultFont", 8))
+                cv.create_line(px, t, px, t + b.height * k, fill=theme.GRID)
+                cv.create_text(px, t - 10, text=str(x), fill=theme.MUTED, font=("TkDefaultFont", 8))
             for y in range(0, int(b.height) + 1, step):
                 py = t + y * k
-                cv.create_line(l, py, l + b.width * k, py, fill="#e4e9ef")
+                cv.create_line(l, py, l + b.width * k, py, fill=theme.GRID)
                 cv.create_text(
-                    l - 4, py, text=str(y), anchor="e", fill="#b8c6d5", font=("TkDefaultFont", 8)
+                    l - 4, py, text=str(y), anchor="e", fill=theme.MUTED, font=("TkDefaultFont", 8)
                 )
         zero_y = t if self.studio.paper_mount.get() == "top_left_y" else t + b.height * k
-        cv.create_oval(l-4, zero_y-4, l+4, zero_y+4, fill="#0087a8", outline="", tags="paper_origin")
-        cv.create_text(l+7, zero_y, text="GRBL zero", anchor="w", fill="#0087a8", tags="paper_origin")
+        cv.create_oval(l-4, zero_y-4, l+4, zero_y+4, fill=theme.ACCENT, outline="", tags="paper_origin")
+        cv.create_text(l+7, zero_y, text="GRBL zero", anchor="w", fill=theme.ACCENT, tags="paper_origin")
         for i, m in enumerate(b.marks):
             if m.color in b.hidden or self.preview is not None and i >= self.preview:
                 continue
             cv.create_line(
                 *[v for x, y in m.points for v in (l + x * k, t + y * k)],
-                fill="#0091b2" if i in self.selection else m.color,
+                fill=theme.ACCENT if i in self.selection else m.color,
                 width=2 if i in self.selection else 1.2,
                 tags=(f"p{i}", "art"),
             )
@@ -905,19 +897,19 @@ class CanvasEditor(ttk.Frame):
                         continue
                     if -6 <= px <= w+6 and -6 <= py <= h+6:
                         previous = px, py
-                        cv.create_rectangle(px-3, py-3, px+3, py+3, fill="white", outline="#008088",
+                        cv.create_rectangle(px-3, py-3, px+3, py+3, fill="white", outline=theme.ACCENT,
                                             tags=(f"point-{index}-{node}", "node"))
         elif self.selection:
             a, bb, c, d = bounds(self.selected())
             x0, y0, x1, y1 = l + a * k, t + bb * k, l + c * k, t + d * k
-            cv.create_rectangle(x0, y0, x1, y1, outline="#0091b2", dash=(4, 3))
-            cv.create_rectangle(x1 - 5, y1 - 5, x1 + 5, y1 + 5, fill="#0091b2", tags="scale")
+            cv.create_rectangle(x0, y0, x1, y1, outline=theme.ACCENT, dash=(4, 3))
+            cv.create_rectangle(x1 - 5, y1 - 5, x1 + 5, y1 + 5, fill=theme.ACCENT, tags="scale")
             cv.create_oval(
                 (x0 + x1) / 2 - 5,
                 y0 - 24,
                 (x0 + x1) / 2 + 5,
                 y0 - 14,
-                fill="#0091b2",
+                fill=theme.ACCENT,
                 tags="rotate",
             )
         self.info.set(
@@ -1009,7 +1001,7 @@ class CanvasEditor(ttk.Frame):
             )
         else:
             self.canvas.create_rectangle(
-                *pixel, e.x, e.y, outline="#0091b2", dash=(3, 3), tags="ghost"
+                *pixel, e.x, e.y, outline=theme.ACCENT, dash=(3, 3), tags="ghost"
             )
 
     def release(self, e):

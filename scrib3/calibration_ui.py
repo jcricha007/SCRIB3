@@ -61,7 +61,7 @@ class CalibrationWindow:
         self.calculate_button.pack(anchor='w')
         self.correction = tk.StringVar(value='Complete a test move before calculating.')
         ttk.Label(frame, textvariable=self.correction, wraplength=550).pack(anchor='w', pady=8)
-        self.apply_button = ttk.Button(frame, text='Apply measured correction', command=self.apply_correction)
+        self.apply_button = ttk.Button(frame, text='Apply measured correction', style='Primary.TButton', command=self.apply_correction)
         self.apply_button.pack(anchor='w')
         ttk.Label(frame, textvariable=self.status, wraplength=550, style='Muted.TLabel').pack(anchor='w', pady=10)
         self.after_id = self.window.after(80, self.poll)

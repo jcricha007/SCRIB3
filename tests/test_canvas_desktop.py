@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import tkinter as tk
+from tkinter import ttk
 from unittest import TestCase, skipUnless
 from unittest.mock import patch, Mock
 from zipfile import ZipFile
@@ -15,6 +16,55 @@ from scrib3.board import Mark
 
 @skipUnless(os.environ.get("SCRIB3_DESKTOP_TESTS") == "1", "Desktop display required")
 class CanvasDesktopTests(TestCase):
+    def test_compact_toolbars_layers_and_plate_preview(self):
+        root = tk.Tk()
+        try:
+            with TemporaryDirectory() as tmp:
+                studio = Studio(root, Path(tmp) / "preset.json")
+                root.geometry("800x650")
+                studio.show_board()
+                editor = studio.board_editor
+                studio.board_window.geometry("800x600")
+                ink = "#2563eb"
+                editor.commit(replace(editor.board, marks=(Mark(ink, ((1, 1), (10, 10))),)))
+                editor.layers.selection_set(ink)
+                root.update()
+                self.assertEqual(editor.pen.get(), ink)
+                self.assertEqual(int(editor.layers.set(ink, "count")), 1)
+                self.assertTrue(editor.layers.item(ink, "image"))
+                header = editor.winfo_children()[0]
+                side = editor.layers.master
+                fit, = (item for item in side.winfo_children()
+                        if isinstance(item, ttk.Button) and item.cget("text") == "Fit view")
+                self.assertGreaterEqual(fit.winfo_height(), fit.winfo_reqheight())
+                menus = [button for button in header.winfo_children() if isinstance(button, ttk.Menubutton)]
+                self.assertEqual(len(menus), 7)
+                for button in menus:
+                    self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
+                board_menu = menus[0].nametowidget(menus[0].cget("menu"))
+                self.assertEqual(board_menu.type(0), "command")
+
+                printer = studio.show_p1s()
+                root.update()
+                plate = printer.canvas.coords("plate")
+                self.assertTrue(plate)
+                self.assertFalse(studio.status_bar.winfo_ismapped())
+                actions = printer.dry_button.master
+                for button in actions.winfo_children():
+                    if isinstance(button, ttk.Button):
+                        self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
+                                             studio.p1s_panel.winfo_rooty() + studio.p1s_panel.winfo_height())
+                root.geometry("1200x800")
+                root.update()
+                self.assertNotEqual(plate, printer.canvas.coords("plate"))
+                studio.show_workbench()
+                root.update()
+                self.assertTrue(studio.status_bar.winfo_ismapped())
+        finally:
+            for callback in root.tk.call("after", "info"):
+                root.after_cancel(callback)
+            root.destroy()
+
     def test_color_sequence_advances_only_on_successful_current_job(self):
         from scrib3.job_ui import JobWindow
 

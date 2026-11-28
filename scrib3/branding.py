@@ -25,7 +25,7 @@ def wordmark(parent, *, style, points, ink=None):
         with Image.open(ASSETS / "logo.png") as logo:
             pixels = max(1, parent.winfo_pixels(f"{points}p"))
             label.mark = _logo_photo(parent, logo.convert("RGBA"), pixels, ink)
-        label.configure(image=label.mark, compound="left")
+        label.configure(image=label.mark, text="CRIB3", compound="left")
     except (OSError, tk.TclError):
         pass  # Keep the text wordmark if the artwork is unavailable.
     return label
@@ -64,5 +64,7 @@ def show_splash(root):
     window.deiconify()
     window.lift()
     # Paint the splash before importing the drawing and machine workspaces.
+    if not window.winfo_viewable():
+        window.wait_visibility()
     window.update()
     return window

@@ -18,7 +18,7 @@ from .machine_readiness import machine_readiness
 
 class ControlPanel(ttk.Frame):
     def __init__(self, parent, studio):
-        super().__init__(parent, padding=(8, 2))
+        super().__init__(parent, padding=(10, 5))
         self.studio = studio
         self.session = None
         self.scan_cancel = Event()
@@ -40,42 +40,48 @@ class ControlPanel(ttk.Frame):
         self.columnconfigure(1, weight=1)
         self.columnconfigure(2, weight=1)
 
-        connection = ttk.LabelFrame(self, text="Connection", padding=(6, 2))
+        connection = ttk.LabelFrame(self, text="Arduino connection", padding=(8, 3))
         connection.grid(row=0, columnspan=3, sticky="ew")
         connection.columnconfigure(0, weight=1)
+        ttk.Label(connection, text="Serial port", style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(connection, text="Baud", style="Section.TLabel").grid(row=0, column=1, sticky="w")
         self.port_picker = ttk.Combobox(connection, textvariable=studio.port, width=22)
-        self.port_picker.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.port_picker.grid(row=1, column=0, sticky="ew", padx=(0, 5))
         self.baud_picker = ttk.Combobox(connection, textvariable=studio.baud, width=8,
                                        values=(115200, 57600, 38400, 19200, 9600, 230400, 250000))
-        self.baud_picker.grid(row=0, column=1, sticky="ew")
+        self.baud_picker.grid(row=1, column=1, sticky="ew")
         actions = ttk.Frame(connection)
-        actions.grid(row=1, columnspan=2, sticky="ew", pady=(4, 0))
+        actions.grid(row=2, columnspan=2, sticky="ew", pady=(4, 0))
         for column, (name, command) in enumerate((("Find ports", self.find_ports),
                                                   ("Auto detect", self.auto_detect),
                                                   ("Connect", self.connect))):
-            button = ttk.Button(actions, text=name, command=command, padding=(6, 4))
+            button = ttk.Button(actions, text=name, command=command, padding=(6, 3),
+                                style="Primary.TButton" if name == "Connect" else "TButton")
             button.grid(row=0, column=column, sticky="ew", padx=(0, 3))
             actions.columnconfigure(column, weight=1)
             self.buttons[name] = button
         tk.Label(connection, textvariable=self.connection_text, wraplength=330, height=2,
-                 justify="left", anchor="w", background=BACKGROUND, foreground=MUTED).grid(row=2, columnspan=2, sticky="w", pady=(4, 0))
+                 justify="left", anchor="w", background=BACKGROUND, foreground=MUTED).grid(row=3, columnspan=2, sticky="w", pady=(2, 0))
 
         readiness = ttk.Frame(self)
         readiness.grid(row=1, columnspan=3, sticky="ew", pady=(4, 0))
         ttk.Label(readiness, textvariable=self.state_text, style="Title.TLabel").pack(anchor="w")
         ttk.Label(readiness, textvariable=self.readiness_text, style="Muted.TLabel",
                   wraplength=330, justify="left").pack(anchor="w")
-        ttk.Label(self, textvariable=self.position_text, font="TkFixedFont").grid(row=2, columnspan=3, sticky="w")
-        ttk.Label(self, textvariable=self.pin_text, style="Muted.TLabel").grid(row=3, columnspan=3, sticky="w")
+        readout = ttk.Frame(self, style="Metric.TFrame", padding=(8, 3))
+        readout.grid(row=2, columnspan=3, sticky="ew", pady=3)
+        ttk.Label(readout, textvariable=self.position_text, style="Metric.TLabel", font="TkFixedFont").pack(anchor="w")
+        ttk.Label(readout, textvariable=self.pin_text, style="Metric.TLabel").pack(anchor="w")
         jog = ttk.Frame(self)
         jog.grid(row=4, columnspan=3, sticky="ew", pady=2)
+        ttk.Label(jog, text="Jog", style="Section.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.step_label = ttk.Label(jog)
-        self.step_label.grid(row=0, column=0, sticky="w")
+        self.step_label.grid(row=0, column=1, sticky="w")
         self.step_picker = ttk.Combobox(jog, textvariable=self.step, width=7)
-        self.step_picker.grid(row=0, column=1, padx=(4, 10))
+        self.step_picker.grid(row=0, column=2, padx=(4, 8))
         self.rate_label = ttk.Label(jog)
-        self.rate_label.grid(row=0, column=2)
-        ttk.Entry(jog, textvariable=self.rate, width=7).grid(row=0, column=3, padx=(4, 0))
+        self.rate_label.grid(row=0, column=3)
+        ttk.Entry(jog, textvariable=self.rate, width=7).grid(row=0, column=4, padx=(4, 0))
         arrows = ttk.Frame(self)
         arrows.grid(row=5, columnspan=3)
         for name, row, column, axis, sign in (("Y +", 0, 1, "Y", 1), ("X −", 1, 0, "X", -1),
@@ -94,8 +100,9 @@ class ControlPanel(ttk.Frame):
             for column, (name, command) in enumerate(entries):
                 label = {"Set manual home": "Set home", "Go to manual home": "Go home", "Home": "Switch home",
                          "Set paper XY zero": "Paper XY zero", "Connection log": "Log", "Setup…": "Setup..."}.get(name, name)
-                button = ttk.Button(self, text=label, command=command, padding=(5, 1))
-                button.grid(row=row, column=column, sticky="ew", padx=(0, 3))
+                button = ttk.Button(self, text=label, command=command, padding=(5, 2),
+                                    style="Danger.TButton" if name == "Reset / abort" else "TButton")
+                button.grid(row=row, column=column, sticky="ew", padx=(0, 3), pady=1)
                 self.buttons[name] = button
         self.update_units()
         self.update_axes()
