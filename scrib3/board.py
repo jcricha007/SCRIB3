@@ -111,6 +111,8 @@ class Board:
         indices,
         *,
         factor=1,
+        scale_x=1,
+        scale_y=1,
         angle=0,
         dx=0,
         dy=0,
@@ -122,7 +124,7 @@ class Board:
         indices = self.text_selection(indices)
         if not indices:
             raise ValueError("Select visible unlocked artwork.")
-        if not all(isfinite(v) for v in (factor, angle, dx, dy)) or factor <= 0:
+        if not all(isfinite(v) for v in (factor, angle, dx, dy, scale_x, scale_y)) or min(factor, scale_x, scale_y) <= 0:
             raise ValueError("Invalid transform.")
         x0, y0, x1, y1 = bounds(self.marks[i] for i in indices)
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
@@ -140,8 +142,8 @@ class Board:
         a, b = cos(radians(angle)) * factor, sin(radians(angle)) * factor
 
         def point(p):
-            x = (p[0] - cx) * (-1 if mirror_x else 1)
-            y = (p[1] - cy) * (-1 if mirror_y else 1)
+            x = (p[0] - cx) * (-scale_x if mirror_x else scale_x)
+            y = (p[1] - cy) * (-scale_y if mirror_y else scale_y)
             return (cx + dx + a * x - b * y, cy + dy + b * x + a * y)
 
         texts = {}

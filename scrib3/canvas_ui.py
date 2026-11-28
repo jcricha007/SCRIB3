@@ -69,6 +69,9 @@ class CanvasEditor(ttk.Frame):
         self.mode = tk.StringVar(value="Select")
         self.grid = tk.BooleanVar(value=True)
         self.snap = tk.BooleanVar(value=False)
+        self.align_guides = tk.BooleanVar(value=False)
+        self.inspector = None
+        self.move_targets = None
         self.zoom = 1.0
         self.pan = (0, 0)
         self.drag = None
@@ -115,6 +118,8 @@ class CanvasEditor(ttk.Frame):
             [
                 ("Undo", self.undo),
                 ("Redo", lambda: self.undo(True)),
+                ("Precision inspector…", self.open_inspector),
+                ("Relative transform…", self.transform_dialog),
                 ("Select all", self.all),
                 ("Preview line cleanup…", self.clean),
                 ("Name group…", self.group),
@@ -237,7 +242,7 @@ class CanvasEditor(ttk.Frame):
             selection.columnconfigure(column, weight=1, uniform="actions")
         for index, (text, fn) in enumerate([
             ("Select all", self.all),
-            ("Transform", self.transform_dialog),
+            ("Inspector", self.open_inspector),
             ("Rotate 90°", lambda: self.transform(angle=90)),
             ("Center", lambda: self.transform(center=True)),
             ("Fit to paper", lambda: self.transform(fit=True)),
@@ -559,6 +564,24 @@ class CanvasEditor(ttk.Frame):
     def transform(self, **kwargs):
         self.commit(self.board.transform(self.selection, **kwargs), self.selection)
 
+    def open_inspector(self):
+        from .poster_inspector import PosterInspector
+        if self.inspector is not None and self.inspector.window.winfo_exists():
+            self.inspector.window.lift()
+        else:
+            self.inspector = PosterInspector(self)
+        return self.inspector
+
+    def move_offset(self, start, end):
+        from .poster_inspector import snap_axis
+        dx, dy = end[0]-start[0], end[1]-start[1]
+        if self.move_targets is None:
+            return dx, dy, None, None
+        (l,t,r,b), (xs,ys) = self.move_targets
+        dx, gx = snap_axis(l,r,dx,xs,5/self.k)
+        dy, gy = snap_axis(t,b,dy,ys,5/self.k)
+        return dx, dy, gx, gy
+
     def transform_dialog(self):
         d = form(
             self.root,
@@ -876,6 +899,8 @@ class CanvasEditor(ttk.Frame):
                 cv.create_text(
                     l - 4, py, text=str(y), anchor="e", fill=theme.MUTED, font=("TkDefaultFont", 8)
                 )
+        if self.inspector is not None and self.inspector.window.winfo_exists():
+            self.inspector.refresh()
         zero_y = t if self.studio.paper_mount.get() == "top_left_y" else t + b.height * k
         cv.create_oval(l-4, zero_y-4, l+4, zero_y+4, fill=theme.ACCENT, outline="", tags="paper_origin")
         cv.create_text(l+7, zero_y, text="GRBL zero", anchor="w", fill=theme.ACCENT, tags="paper_origin")
@@ -977,6 +1002,10 @@ class CanvasEditor(ttk.Frame):
                 self.selection = self.board.text_selection([hit])
                 self.delete()
             return
+        self.move_targets = None
+        if mode == "Move" and self.selection and self.align_guides.get():
+            from .poster_inspector import guide_targets
+            self.move_targets = bounds(self.selected()), guide_targets(self.board, self.selection)
         self.drag = (mode, p, (e.x, e.y), self.board, [p], self.pan)
         self.paint()
 
@@ -989,6 +1018,18 @@ class CanvasEditor(ttk.Frame):
         if mode == "Pan":
             self.pan = (pan[0] + e.x - pixel[0], pan[1] + e.y - pixel[1])
             self.paint()
+        elif mode == "Move" and self.move_targets is not None:
+            dx, dy, gx, gy = self.move_offset(p, q)
+            l,t,r,bottom = self.move_targets[0]
+            cv, k = self.canvas, self.k
+            cv.create_rectangle(self.left+(l+dx)*k,self.top+(t+dy)*k,self.left+(r+dx)*k,self.top+(bottom+dy)*k,
+                                outline=theme.ACCENT, tags="ghost")
+            if gx is not None:
+                x = self.left+gx*k
+                cv.create_line(x,0,x,cv.winfo_height(),fill=theme.TRAVEL,dash=(3,3),tags="ghost")
+            if gy is not None:
+                y = self.top+gy*k
+                cv.create_line(0,y,cv.winfo_width(),y,fill=theme.TRAVEL,dash=(3,3),tags="ghost")
         elif mode == "Node":
             index, node = trail
             mark = b.marks[index]
@@ -1042,7 +1083,8 @@ class CanvasEditor(ttk.Frame):
             self.paint()
         elif mode == "Move":
             if self.selection and q != p:
-                self.transform(dx=q[0] - p[0], dy=q[1] - p[1])
+                dx, dy, _, _ = self.move_offset(p, q)
+                self.transform(dx=dx, dy=dy)
         elif mode in ("scale", "rotate"):
             a, bb, c, d = bounds(self.selected())
             cx, cy = (a + c) / 2, (bb + d) / 2
